@@ -1,0 +1,135 @@
+version: '3.8'
+
+services:
+  # Frontend Service
+  frontend:
+    build: ./services/frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_GATEWAY_URL=http://localhost:8000
+      - REACT_APP_WS_URL=ws://localhost:8000
+    depends_on:
+      - api-gateway
+    volumes:
+      - ./services/frontend:/app
+      - /app/node_modules
+
+  # API Gateway
+  api-gateway:
+    build: ./services/api-gateway
+    ports:
+      - "8000:8000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:3001
+      - AI_SERVICE_URL=http://ai-service:8001
+      - FILE_SERVICE_URL=http://file-service:3002
+      - DATABASE_SERVICE_URL=http://database-service:3003
+      - JWT_SECRET=your-jwt-secret-key
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - auth-service
+      - ai-service
+      - file-service
+      - database-service
+      - redis
+
+  # Auth Service
+  auth-service:
+    build: ./services/auth-service
+    ports:
+      - "3001:3001"
+    environment:
+      - JWT_SECRET=your-jwt-secret-key
+      - JWT_EXPIRES_IN=24h
+      - BCRYPT_ROUNDS=12
+      - DATABASE_URL=mysql://user:password@mysql:3306/ai_platform
+    depends_on:
+      - mysql
+
+  # AI/Inference Service
+  ai-service:
+    build: ./services/ai-service
+    ports:
+      - "8001:8001"
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY}
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8002
+      - MYSQL_URL=mysql://user:password@mysql:3306/ai_platform
+    depends_on:
+      - chromadb
+      - mysql
+    volumes:
+      - ./tmp:/tmp
+
+  # File Service
+  file-service:
+    build: ./services/file-service
+    ports:
+      - "3002:3002"
+    environment:
+      - UPLOAD_DIR=/tmp/uploads
+      - MAX_FILE_SIZE=50MB
+      - DATABASE_URL=mysql://user:password@mysql:3306/ai_platform
+    depends_on:
+      - mysql
+    volumes:
+      - ./tmp:/tmp
+
+  # Database Service (API layer for MySQL)
+  database-service:
+    build: ./services/database-service
+    ports:
+      - "3003:3003"
+    environment:
+      - DATABASE_URL=mysql://user:password@mysql:3306/ai_platform
+      - CHROMADB_HOST=chromadb
+      - CHROMADB_PORT=8002
+    depends_on:
+      - mysql
+      - chromadb
+
+  # MySQL Database
+  mysql:
+    image: mysql:8.0
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=rootpassword
+      - MYSQL_DATABASE=ai_platform
+      - MYSQL_USER=user
+      - MYSQL_PASSWORD=password
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./services/database-service/init.sql:/docker-entrypoint-initdb.d/init.sql
+
+  # ChromaDB for Vector Storage
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - "8002:8000"
+    environment:
+      - CHROMA_SERVER_HOST=0.0.0.0
+      - CHROMA_SERVER_HTTP_PORT=8000
+    volumes:
+      - chromadb_data:/chroma/chroma
+
+  # Redis for Caching and Session Storage
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+volumes:
+  mysql_data:
+  chromadb_data:
+  redis_data:
+
+networks:
+  default:
+    driver: bridge
