@@ -22,7 +22,7 @@ function App() {
 
   return (
     <Router>
-      <div className="min-h-screen bg-gray-900">
+      <div className="min-h-screen bg-white dark:bg-gray-900">
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<HomePage />} />

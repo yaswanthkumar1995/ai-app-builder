@@ -181,11 +181,11 @@ const Settings: React.FC = () => {
   }
 
   return (
-    <div className="flex h-full bg-gray-900">
+    <div className="flex h-full bg-white dark:bg-gray-900">
       {/* Settings Sidebar */}
-      <div className="w-64 bg-gray-800 border-r border-gray-700 flex flex-col">
-        <div className="p-6 border-b border-gray-700">
-          <h1 className="text-2xl font-bold text-white">Settings</h1>
+      <div className="w-64 bg-gray-50 dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 flex flex-col">
+        <div className="p-6 border-b border-gray-200 dark:border-gray-700">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
         </div>
         <div className="flex-1 overflow-y-auto">
           <nav className="p-4 space-y-2">
@@ -196,7 +196,7 @@ const Settings: React.FC = () => {
                 className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium transition-colors ${
                   activeSection === section.id
                     ? 'bg-blue-600 text-white border border-blue-500'
-                    : 'text-gray-300 hover:bg-gray-700'
+                    : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700'
                 }`}
               >
                 <span className="mr-3">{section.icon}</span>
@@ -214,13 +214,13 @@ const Settings: React.FC = () => {
           {activeSection === 'general' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-6">General Settings</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">General Settings</h2>
                 
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
-                  <h3 className="text-lg font-medium text-white mb-4">Appearance</h3>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Appearance</h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Theme</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Theme</label>
                       <div className="flex space-x-2">
                         {(['light', 'dark', 'system'] as const).map((theme) => (
                           <button
@@ -229,7 +229,7 @@ const Settings: React.FC = () => {
                             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                               settings.preferences.theme === theme
                                 ? 'bg-blue-600 text-white'
-                                : 'bg-gray-600 text-gray-300 hover:bg-gray-500 hover:text-white'
+                                : 'bg-gray-200 dark:bg-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-300 dark:hover:bg-gray-500 hover:text-gray-900 dark:hover:text-white'
                             }`}
                           >
                             {theme.charAt(0).toUpperCase() + theme.slice(1)}
@@ -240,8 +240,8 @@ const Settings: React.FC = () => {
                     
                     <div className="flex items-center justify-between">
                       <div>
-                        <label className="text-sm font-medium text-gray-300">Notifications</label>
-                        <p className="text-xs text-gray-400">Receive notifications for important updates</p>
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Notifications</label>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Receive notifications for important updates</p>
                       </div>
                       <input
                         type="checkbox"
@@ -253,12 +253,12 @@ const Settings: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
-                  <h3 className="text-lg font-medium text-white mb-4">Auto-save</h3>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Auto-save</h3>
                   <div className="flex items-center justify-between">
                     <div>
-                      <label className="text-sm font-medium text-gray-300">Auto-save projects</label>
-                      <p className="text-xs text-gray-400">Automatically save your work as you type</p>
+                      <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Auto-save projects</label>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Automatically save your work as you type</p>
                     </div>
                     <input
                       type="checkbox"
@@ -276,15 +276,15 @@ const Settings: React.FC = () => {
           {activeSection === 'workflow' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-6">Workflow Settings</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Workflow Settings</h2>
                 
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
-                  <h3 className="text-lg font-medium text-white mb-4">AI Workflow</h3>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">AI Workflow</h3>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <label className="text-sm font-medium text-gray-300">Auto-approve changes</label>
-                        <p className="text-xs text-gray-400">Automatically approve and run AI-generated code changes</p>
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Auto-approve changes</label>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Automatically approve and run AI-generated code changes</p>
                       </div>
                       <input
                         type="checkbox"
@@ -296,8 +296,8 @@ const Settings: React.FC = () => {
                     
                     <div className="flex items-center justify-between">
                       <div>
-                        <label className="text-sm font-medium text-gray-300">Auto-fix problems</label>
-                        <p className="text-xs text-gray-400">Automatically fix TypeScript errors and issues</p>
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Auto-fix problems</label>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Automatically fix TypeScript errors and issues</p>
                       </div>
                       <input
                         type="checkbox"
@@ -309,11 +309,11 @@ const Settings: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
-                  <h3 className="text-lg font-medium text-white mb-4">Chat Settings</h3>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Chat Settings</h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Max Chat Turns: {settings.workflow.maxChatTurns}
                       </label>
                       <input
@@ -324,7 +324,7 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateWorkflowSetting('maxChatTurns', parseInt(e.target.value))}
                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                       />
-                      <p className="text-xs text-gray-400">Maximum number of conversation turns in a chat session</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Maximum number of conversation turns in a chat session</p>
                     </div>
                     
                     <div>
@@ -340,7 +340,7 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateWorkflowSetting('thinkingBudget', parseInt(e.target.value))}
                         className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
                       />
-                      <p className="text-xs text-gray-400">Maximum tokens for AI thinking and reasoning</p>
+                      <p className="text-xs text-gray-500 dark:text-gray-400">Maximum tokens for AI thinking and reasoning</p>
                     </div>
                   </div>
                 </div>
@@ -352,13 +352,13 @@ const Settings: React.FC = () => {
           {activeSection === 'ai' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-6">AI Provider Settings</h2>
-                <p className="text-sm text-gray-400 mb-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">AI Provider Settings</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
                   Configure your AI provider API keys. Keys are stored securely and used only for AI processing.
                 </p>
 
                 {/* OpenAI */}
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700 mb-6">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center">
                       <input
@@ -368,29 +368,25 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateProviderSetting('openai', 'enabled', e.target.checked)}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <label htmlFor="openai-enabled" className="ml-2 text-lg font-medium text-white">
+                      <label htmlFor="openai-enabled" className="ml-2 text-lg font-medium text-gray-900 dark:text-white">
                         OpenAI
                       </label>
                     </div>
-                    <span className="text-sm text-gray-400">GPT-4, GPT-3.5</span>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      API Key
-                    </label>
                     <input
                       type="password"
                       value={settings.openai.apiKey}
                       onChange={(e) => updateProviderSetting('openai', 'apiKey', e.target.value)}
                       disabled={!settings.openai.enabled}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                      placeholder="sk-..."
+                      placeholder="API Key"
                     />
                   </div>
                 </div>
 
                 {/* Anthropic */}
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700 mb-6">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center">
                       <input
@@ -400,29 +396,25 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateProviderSetting('anthropic', 'enabled', e.target.checked)}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <label htmlFor="anthropic-enabled" className="ml-2 text-lg font-medium text-white">
+                      <label htmlFor="anthropic-enabled" className="ml-2 text-lg font-medium text-gray-900 dark:text-white">
                         Anthropic
                       </label>
                     </div>
-                    <span className="text-sm text-gray-400">Claude 3, Claude 2</span>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      API Key
-                    </label>
                     <input
                       type="password"
                       value={settings.anthropic.apiKey}
                       onChange={(e) => updateProviderSetting('anthropic', 'apiKey', e.target.value)}
                       disabled={!settings.anthropic.enabled}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                      placeholder="sk-ant-..."
+                      placeholder="API Key"
                     />
                   </div>
                 </div>
 
                 {/* Google */}
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700 mb-6">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center">
                       <input
@@ -432,29 +424,25 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateProviderSetting('google', 'enabled', e.target.checked)}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <label htmlFor="google-enabled" className="ml-2 text-lg font-medium text-white">
+                      <label htmlFor="google-enabled" className="ml-2 text-lg font-medium text-gray-900 dark:text-white">
                         Google AI
                       </label>
                     </div>
-                    <span className="text-sm text-gray-400">Gemini, PaLM</span>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">
-                      API Key
-                    </label>
                     <input
                       type="password"
                       value={settings.google.apiKey}
                       onChange={(e) => updateProviderSetting('google', 'apiKey', e.target.value)}
                       disabled={!settings.google.enabled}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-                      placeholder="AIza..."
+                      placeholder="API Key"
                     />
                   </div>
                 </div>
 
                 {/* Ollama */}
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                   <div className="flex items-center justify-between mb-4">
                     <div className="flex items-center">
                       <input
@@ -464,18 +452,18 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateProviderSetting('ollama', 'enabled', e.target.checked)}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <label htmlFor="ollama-enabled" className="ml-2 text-lg font-medium text-white">
+                      <label htmlFor="ollama-enabled" className="ml-2 text-lg font-medium text-gray-900 dark:text-white">
                         Ollama
                       </label>
                     </div>
-                    <span className="text-sm text-gray-400">Local AI Models</span>
+                    <span className="text-sm text-gray-600 dark:text-gray-400">Local AI Models</span>
                   </div>
 
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <label className="text-sm font-medium text-gray-300">Use Custom URL</label>
-                        <p className="text-xs text-gray-400">Connect to remote Ollama instance</p>
+                        <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Use Custom URL</label>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Connect to remote Ollama instance</p>
                       </div>
                       <input
                         type="checkbox"
@@ -488,7 +476,7 @@ const Settings: React.FC = () => {
 
                     {settings.ollama.customUrl && (
                       <div>
-                        <label className="block text-sm font-medium text-gray-300 mb-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                           Ollama Base URL
                         </label>
                         <input
@@ -503,10 +491,10 @@ const Settings: React.FC = () => {
                     )}
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Available Ollama Models
                       </label>
-                      <div className="text-xs text-gray-400 bg-gray-900 p-3 rounded-md">
+                      <div className="text-xs text-gray-600 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 p-3 rounded-md">
                         Models are automatically detected when Ollama is running locally or when connected remotely via custom URL.
                       </div>
                     </div>
