@@ -130,7 +130,10 @@ router.get('/providers', async (req: AuthRequest, res) => {
     res.json(formattedSettings);
   } catch (error) {
     console.error('Error in GET /providers:', error);
-    res.status(500).json({ error: 'Internal server error', message: error.message });
+    res.status(500).json({ 
+      error: 'Internal server error', 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
   }
 });
 

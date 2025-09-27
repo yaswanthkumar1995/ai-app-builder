@@ -77,7 +77,7 @@ const verifyPassword = async (password: string, hash: string) => {
 
 // Email transporter
 const createEmailTransporter = () => {
-  return nodemailer.createTransporter({
+  return nodemailer.createTransport({
     host: process.env.SMTP_HOST || 'smtp.gmail.com',
     port: parseInt(process.env.SMTP_PORT || '587'),
     secure: false,
