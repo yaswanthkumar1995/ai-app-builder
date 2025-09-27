@@ -3,15 +3,10 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import ChatInterface from './components/ChatInterface';
-import SimpleChatInterface from './components/SimpleChatInterface';
 import ProjectDashboard from './components/ProjectDashboard';
 import ProjectManager from './components/ProjectManager';
-import SimpleProjectManager from './components/SimpleProjectManager';
 import CodeEditor from './components/CodeEditor';
-import SimpleCodeEditor from './components/SimpleCodeEditor';
 import Settings from './components/Settings';
-import TestComponent from './components/TestComponent';
 import AuthGuard from './components/AuthGuard';
 import ErrorBoundary from './components/ErrorBoundary';
 import HomePage from './components/HomePage';
@@ -51,8 +46,6 @@ function App() {
                         <Routes>
                           <Route path="/" element={<ProjectDashboard />} />
                           <Route path="/projects" element={<ProjectManager />} />
-                          <Route path="/chat" element={<ChatInterface />} />
-                          <Route path="/chat/:chatId" element={<ChatInterface />} />
                           <Route path="/editor" element={<CodeEditor />} />
                           <Route path="/settings" element={<Settings />} />
                         </Routes>
