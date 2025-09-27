@@ -107,53 +107,6 @@ const ProjectManager: React.FC = () => {
           </div>
         </div>
 
-        {/* Current Project Info */}
-        {currentProject && (
-          <div className="bg-gray-800 rounded-lg p-6 mb-8 border border-gray-700">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-xl font-semibold text-white mb-2">
-                  Current Project: {currentProject.name}
-                </h2>
-                {currentProject.description && (
-                  <p className="text-gray-400 mb-2">{currentProject.description}</p>
-                )}
-                <div className="flex items-center space-x-4 text-sm text-gray-500">
-                  <span>Created: {currentProject.createdAt.toLocaleDateString()}</span>
-                  <span>Updated: {currentProject.updatedAt.toLocaleDateString()}</span>
-                  <span>Files: {currentProject.files.length}</span>
-                </div>
-              </div>
-              <div className="flex items-center space-x-2">
-                <button
-                  onClick={() => {
-                    const input = document.createElement('input');
-                    input.type = 'file';
-                    input.accept = '.json';
-                    input.onchange = (e) => {
-                      const file = (e.target as HTMLInputElement).files?.[0];
-                      if (file) {
-                        const reader = new FileReader();
-                        reader.onload = (e) => {
-                          const content = e.target?.result as string;
-                          setImportData(content);
-                          setShowImportModal(true);
-                        };
-                        reader.readAsText(file);
-                      }
-                    };
-                    input.click();
-                  }}
-                  className="p-2 text-gray-400 hover:text-white hover:bg-gray-700 rounded-md"
-                  title="Import from file"
-                >
-                  <DocumentIcon className="h-5 w-5" />
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Projects Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((project) => (

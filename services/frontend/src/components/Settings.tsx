@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuthStore } from '../stores/authStore';
 import { config } from '../config';
 import toast from 'react-hot-toast';
+import { useTheme } from '../hooks/useTheme';
 
 interface ProviderSettings {
   openai: { apiKey: string; enabled: boolean };
@@ -47,6 +48,9 @@ const Settings: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [activeSection, setActiveSection] = useState('general');
+
+  // Apply theme whenever it changes
+  useTheme(settings.preferences.theme);
 
   useEffect(() => {
     fetchSettings();
@@ -115,14 +119,39 @@ const Settings: React.FC = () => {
     }));
   };
 
-  const updatePreference = (field: string, value: boolean | string) => {
-    setSettings(prev => ({
-      ...prev,
+  const updatePreference = async (field: string, value: boolean | string) => {
+    const newSettings = {
+      ...settings,
       preferences: {
-        ...prev.preferences,
+        ...settings.preferences,
         [field]: value,
       },
-    }));
+    };
+    
+    setSettings(newSettings);
+    
+    // Auto-save when theme changes
+    if (field === 'theme') {
+      try {
+        const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(newSettings),
+        });
+
+        if (response.ok) {
+          toast.success('Theme changed successfully!');
+        } else {
+          throw new Error('Failed to save theme setting');
+        }
+      } catch (error) {
+        console.error('Failed to save theme setting:', error);
+        toast.error('Failed to save theme setting');
+      }
+    }
   };
 
   const updateWorkflowSetting = (field: string, value: boolean | number) => {
@@ -200,7 +229,7 @@ const Settings: React.FC = () => {
                             className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
                               settings.preferences.theme === theme
                                 ? 'bg-blue-600 text-white'
-                                : 'bg-gray-100 text-gray-300 hover:bg-gray-200'
+                                : 'bg-gray-600 text-gray-300 hover:bg-gray-500 hover:text-white'
                             }`}
                           >
                             {theme.charAt(0).toUpperCase() + theme.slice(1)}
