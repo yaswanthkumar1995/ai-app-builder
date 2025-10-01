@@ -194,50 +194,6 @@ Context: ${chatSettings.includeContext ? 'Working on a project with the followin
     setIsLoading(true);
 
     try {
-      // Mock AI response for development
-      if (token === 'mock-jwt-token') {
-        const getProviderDisplayName = (provider: string) => {
-          const names = {
-            openai: 'OpenAI',
-            anthropic: 'Anthropic',
-            google: 'Google',
-            auto: 'Auto (Smart Selection)',
-            openrouter: 'OpenRouter',
-            ollama: 'Ollama (Local)',
-            lmstudio: 'LM Studio (Local)',
-            azure: 'Azure OpenAI'
-          };
-          return names[provider as keyof typeof names] || provider;
-        };
-
-        const mockResponse = {
-          response: `I understand you want to work on: "${userMessage.content}". 
-
-**Using ${getProviderDisplayName(chatSettings.provider)} - ${chatSettings.model}** 
-- Temperature: ${chatSettings.temperature}
-- Max Tokens: ${chatSettings.maxTokens}
-- Enhanced Prompt: ${chatSettings.enhancePrompt ? 'Yes' : 'No'}
-- Include Context: ${chatSettings.includeContext ? 'Yes' : 'No'}
-
-${attachments.length > 0 ? `\n**Attachments included:** ${attachments.map(a => a.name).join(', ')}` : ''}
-
-This is a mock AI response for development. In a real implementation, I would help you build and modify your code based on your request using the selected AI provider and model configuration.`,
-          files: []
-        };
-        
-        const assistantMessage: Message = {
-          id: (Date.now() + 1).toString(),
-          content: mockResponse.response,
-          role: 'assistant',
-          timestamp: new Date(),
-          files: mockResponse.files,
-        };
-
-        setMessages(prev => [...prev, assistantMessage]);
-        setIsLoading(false);
-        return;
-      }
-
       const response = await fetch(`${config.apiGatewayUrl}/api/chat`, {
         method: 'POST',
         headers: {

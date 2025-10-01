@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -101,10 +101,37 @@ app.use('/api/projects', createProxyMiddleware({
   pathRewrite: { '^/api/projects': '/projects' }
 }));
 
-app.use('/api/settings', createProxyMiddleware({
+app.use('/api/settings', (req: any, res: Response, next: NextFunction) => {
+  console.log('🔥 Settings request received:', req.method, req.url, 'User:', req.user?.email);
+  next();
+}, createProxyMiddleware({
   target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
   changeOrigin: true,
-  pathRewrite: { '^/api/settings': '/settings' }
+  pathRewrite: { '^/api/settings': '/settings' },
+  timeout: 60000, // 60 second timeout
+  onProxyReq: (proxyReq: any, req: any, res: any) => {
+    // Forward user information headers
+    if (req.headers['x-user-id']) {
+      proxyReq.setHeader('x-user-id', req.headers['x-user-id']);
+    }
+    if (req.headers['x-user-email']) {
+      proxyReq.setHeader('x-user-email', req.headers['x-user-email']);
+    }
+    if (req.headers.authorization) {
+      proxyReq.setHeader('authorization', req.headers.authorization);
+    }
+    console.log('🚀 Proxying settings request with headers:', {
+      'x-user-id': req.headers['x-user-id'],
+      'x-user-email': req.headers['x-user-email'],
+      'authorization': req.headers.authorization ? 'present' : 'missing'
+    });
+  },
+  onProxyRes: (proxyRes: any, req: any, res: any) => {
+    console.log('✅ Settings proxy response:', proxyRes.statusCode);
+  },
+  onError: (err: any, req: any, res: any) => {
+    console.error('❌ Settings proxy error:', err.message);
+  }
 }));
 
 // WebSocket setup
@@ -114,7 +141,7 @@ setupWebSocket(io);
 app.use(errorHandler);
 
 // 404 handler
-app.use('*', (req, res) => {
+app.use('*', (req: Request, res: Response) => {
   res.status(404).json({ error: 'Route not found' });
 });
 

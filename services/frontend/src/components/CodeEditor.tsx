@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import Editor from '@monaco-editor/react';
-import { PlayIcon, SparklesIcon, DocumentArrowDownIcon, FolderIcon, ChatBubbleLeftRightIcon, XMarkIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, ChatBubbleLeftRightIcon, XMarkIcon } from '@heroicons/react/24/outline';
 import FileTree from './FileTree';
 import SidebarChat from './SidebarChat';
 import { useProjectStore, FileNode } from '../stores/projectStore';
@@ -18,7 +18,6 @@ const CodeEditor: React.FC = () => {
   } = useProjectStore();
 
   const [editorContent, setEditorContent] = useState(selectedFile?.content || '');
-  const [isRunning, setIsRunning] = useState(false);
   const [showFileTree, setShowFileTree] = useState(true);
   const [showChat, setShowChat] = useState(false);
   const editorRef = useRef<any>(null);
@@ -71,46 +70,7 @@ const CodeEditor: React.FC = () => {
     }
   };
 
-  const handleRunCode = async () => {
-    if (!selectedFile) {
-      toast.error('Please select a file to run');
-      return;
-    }
 
-    setIsRunning(true);
-    try {
-      // TODO: Implement actual code execution
-      toast.success('Code executed successfully!');
-    } catch (error) {
-      toast.error('Failed to execute code');
-    } finally {
-      setIsRunning(false);
-    }
-  };
-
-  const handleSaveFile = () => {
-    if (!selectedFile) {
-      toast.error('No file selected');
-      return;
-    }
-    
-    // TODO: Implement actual file saving
-    toast.success('File saved successfully!');
-  };
-
-  const handleAIAssist = () => {
-    // Open chat if not already open
-    if (!showChat) {
-      setShowChat(true);
-    }
-    
-    // TODO: Pre-populate chat with current file context
-    if (selectedFile) {
-      toast.success(`Chat opened with context of ${selectedFile.name}`);
-    } else {
-      toast.success('Chat opened - ready to help with your code!');
-    }
-  };
 
   const handleChatToggle = () => {
     setShowChat(!showChat);
@@ -175,23 +135,6 @@ const CodeEditor: React.FC = () => {
             
             <div className="flex items-center space-x-2">
               <button
-                onClick={handleSaveFile}
-                className="flex items-center px-3 py-2 bg-gray-700 text-white rounded-md hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-gray-500"
-                title="Save file"
-              >
-                <DocumentArrowDownIcon className="h-4 w-4 mr-2" />
-                Save
-              </button>
-              <button
-                onClick={handleRunCode}
-                disabled={isRunning || !selectedFile}
-                className="flex items-center px-3 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                title="Run code"
-              >
-                <PlayIcon className="h-4 w-4 mr-2" />
-                {isRunning ? 'Running...' : 'Run'}
-              </button>
-              <button
                 onClick={handleChatToggle}
                 className={`flex items-center px-3 py-2 rounded-md focus:outline-none focus:ring-2 transition-colors ${
                   showChat 
@@ -202,18 +145,6 @@ const CodeEditor: React.FC = () => {
               >
                 <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
                 Chat
-              </button>
-              <button
-                onClick={handleAIAssist}
-                className={`flex items-center px-3 py-2 rounded-md focus:outline-none focus:ring-2 transition-colors ${
-                  showChat 
-                    ? 'bg-purple-600 text-white hover:bg-purple-700 focus:ring-purple-500' 
-                    : 'bg-blue-600 text-white hover:bg-blue-700 focus:ring-blue-500'
-                }`}
-                title="AI Assist"
-              >
-                <SparklesIcon className={`h-4 w-4 mr-2 ${showChat ? 'animate-pulse' : ''}`} />
-                AI Assist
               </button>
             </div>
           </div>

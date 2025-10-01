@@ -31,25 +31,6 @@ export const useAuthStore = create<AuthState>()(
       login: async (email: string, password: string) => {
         set({ isLoading: true });
         try {
-          // Mock authentication for development
-          if (email === 'test@example.com' && password === 'password') {
-            const mockUser = {
-              id: '1',
-              email: 'test@example.com',
-              name: 'Test User',
-              avatar: undefined,
-            };
-            const mockToken = 'mock-jwt-token';
-            
-            set({
-              user: mockUser,
-              token: mockToken,
-              isAuthenticated: true,
-              isLoading: false,
-            });
-            return;
-          }
-
           const response = await fetch(`${config.apiGatewayUrl}/api/auth/login`, {
             method: 'POST',
             headers: {

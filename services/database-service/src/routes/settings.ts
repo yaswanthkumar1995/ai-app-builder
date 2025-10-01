@@ -139,15 +139,26 @@ router.get('/providers', async (req: AuthRequest, res) => {
 
 // Save provider settings for user
 router.post('/providers', async (req: AuthRequest, res) => {
+  console.log('🚀 OPTIMIZED POST /providers received - v2');
+  console.log('🚀 User from middleware:', req.user?.id);
+  console.log('🚀 Request body size:', JSON.stringify(req.body).length, 'characters');
+  console.log('🚀 Request body content:', JSON.stringify(req.body, null, 2));
+
   try {
     if (!req.user?.id) {
+      console.log('❌ No user ID found');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const userId = req.user.id;
+    console.log('✅ Processing settings save for user:', userId);
 
-    // Updated schema to match frontend
-    const settingsSchema = z.object({
+    // Skip rigid schema validation for partial updates
+    // We'll validate individual provider schemas when they're present
+    const validatedSettings = req.body;
+    
+    // Individual provider schemas for validation
+    const providerSchemas = {
       openai: z.object({
         apiKey: z.string(),
         enabled: z.boolean(),
@@ -181,92 +192,156 @@ router.post('/providers', async (req: AuthRequest, res) => {
         thinkingBudget: z.number(),
         autoFixProblems: z.boolean(),
       }),
-    });
-
-    const validatedSettings = settingsSchema.parse(req.body);
-
-    // Combine preferences and workflow for storage
-    const combinedPreferences = {
-      ...validatedSettings.preferences,
-      workflow: validatedSettings.workflow,
     };
 
-    // Save all provider settings including new ones
-    const providers = ['openai', 'anthropic', 'google', 'github', 'ollama'] as const;
+    // Only process providers that are actually in the request
+    const providersToUpdate = ['openai', 'anthropic', 'google', 'github', 'ollama'] as const;
+    const updatedProviders: string[] = [];
 
-    for (const provider of providers) {
-      const providerData = validatedSettings[provider] as any; // Type assertion for mixed types
+    // Get all existing settings for the user at once for better performance
+    const existingSettings = await db
+      .select()
+      .from(providerSettings)
+      .where(eq(providerSettings.userId, userId));
+
+    const existingMap = new Map(existingSettings.map(s => [s.provider, s]));
+
+    for (const provider of providersToUpdate) {
+      if (!validatedSettings[provider]) continue; // Skip if not in request
+
+      // Validate the individual provider data if it exists
+      if (providerSchemas[provider]) {
+        try {
+          providerSchemas[provider].parse(validatedSettings[provider]);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            console.log(`❌ Validation error for ${provider}:`, error.errors);
+            return res.status(400).json({ 
+              error: `Invalid data for ${provider}`, 
+              details: error.errors 
+            });
+          }
+        }
+      }
+
+      const providerData = validatedSettings[provider] as any;
       let insertData: any = {
         userId,
         provider,
         enabled: providerData.enabled,
       };
 
-      // Handle apiKey for all providers (ollama doesn't have it)
+      // Handle apiKey for non-ollama providers
       if (provider !== 'ollama') {
         insertData.apiKey = providerData.apiKey;
       }
 
-      // Handle special fields for certain providers
+      // Handle special fields for ollama
       if (provider === 'ollama') {
         insertData.baseUrl = providerData.baseUrl;
         insertData.customConfig = { customUrl: providerData.customUrl };
       }
 
-      // Check if setting exists
-      const existing = await db
-        .select()
-        .from(providerSettings)
-        .where(and(
-          eq(providerSettings.userId, userId),
-          eq(providerSettings.provider, provider)
-        ))
-        .limit(1);
+      // Use the pre-fetched existing settings
+      const existing = existingMap.get(provider);
 
-      if (existing.length > 0) {
-        // Update existing
+      if (existing) {
         await db
           .update(providerSettings)
           .set({
             ...insertData,
             updatedAt: new Date(),
           })
-          .where(eq(providerSettings.id, existing[0].id));
+          .where(eq(providerSettings.id, existing.id));
       } else {
-        // Create new
         await db.insert(providerSettings).values(insertData);
+      }
+
+      updatedProviders.push(provider);
+    }
+
+    // Only update preferences if they're in the request
+    if (validatedSettings.preferences || validatedSettings.workflow) {
+      // Validate preferences and workflow if present
+      if (validatedSettings.preferences && providerSchemas.preferences) {
+        try {
+          providerSchemas.preferences.parse(validatedSettings.preferences);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            console.log('❌ Validation error for preferences:', error.errors);
+            return res.status(400).json({ 
+              error: 'Invalid preferences data', 
+              details: error.errors 
+            });
+          }
+        }
+      }
+
+      if (validatedSettings.workflow && providerSchemas.workflow) {
+        try {
+          providerSchemas.workflow.parse(validatedSettings.workflow);
+        } catch (error) {
+          if (error instanceof z.ZodError) {
+            console.log('❌ Validation error for workflow:', error.errors);
+            return res.status(400).json({ 
+              error: 'Invalid workflow data', 
+              details: error.errors 
+            });
+          }
+        }
+      }
+      const combinedPreferences = {
+        ...(validatedSettings.preferences || {}),
+        ...(validatedSettings.workflow ? { workflow: validatedSettings.workflow } : {}),
+      };
+
+      const existingPrefs = await db
+        .select()
+        .from(userPreferences)
+        .where(eq(userPreferences.userId, userId))
+        .limit(1);
+
+      if (existingPrefs.length > 0) {
+        // Merge with existing preferences instead of overwriting
+        const currentPrefs = (existingPrefs[0].preferences as any) || {};
+        const mergedPrefs = { ...currentPrefs, ...combinedPreferences };
+        
+        await db
+          .update(userPreferences)
+          .set({
+            preferences: mergedPrefs,
+            updatedAt: new Date(),
+          })
+          .where(eq(userPreferences.id, existingPrefs[0].id));
+      } else {
+        // For new preferences, provide defaults
+        const defaultPrefs = {
+          darkMode: false,
+          autoSave: true,
+          theme: 'system',
+          notifications: true,
+          autoApprove: false,
+          ...combinedPreferences
+        };
+        
+        await db.insert(userPreferences).values({
+          userId,
+          preferences: defaultPrefs,
+        });
       }
     }
 
-    // Save user preferences
-    const existingPrefs = await db
-      .select()
-      .from(userPreferences)
-      .where(eq(userPreferences.userId, userId))
-      .limit(1);
-
-    if (existingPrefs.length > 0) {
-      await db
-        .update(userPreferences)
-        .set({
-          preferences: combinedPreferences,
-          updatedAt: new Date(),
-        })
-        .where(eq(userPreferences.id, existingPrefs[0].id));
-    } else {
-      await db.insert(userPreferences).values({
-        userId,
-        preferences: combinedPreferences,
-      });
-    }
-
+    console.log('✅ Settings saved successfully for user:', userId);
+    console.log('📝 Updated providers:', updatedProviders);
+    
     res.json({ message: 'Settings saved successfully' });
   } catch (error) {
     if (error instanceof z.ZodError) {
+      console.log('❌ Validation error:', error.errors);
       return res.status(400).json({ error: 'Invalid settings data', details: error.errors });
     }
 
-    console.error('Error saving provider settings:', error);
+    console.error('❌ Error saving provider settings:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -46,8 +46,9 @@ const Settings: React.FC = () => {
     },
   });
   const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [savingSection, setSavingSection] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState('general');
+
 
   // Apply theme whenever it changes
   useTheme(settings.preferences.theme);
@@ -82,32 +83,84 @@ const Settings: React.FC = () => {
     }
   };
 
-  const saveSettings = async () => {
-    if (!token) return;
+  // Handle save button click for each section
+  const saveSettings = async (section: string) => {
+    console.log('🎯 saveSettings called for section:', section);
+    
+    if (!token) {
+      console.error('❌ No token available');
+      toast.error('Authentication required. Please log in again.');
+      return;
+    }
+  
+    if (savingSection !== null) {
+      console.log('❌ Save already in progress for:', savingSection);
+      toast.error('Another save is in progress, please wait');
+      return;
+    }
+  
+    console.log('✅ Starting save process for:', section);
+    setSavingSection(section);
 
-    setSaving(true);
     try {
+      const dataToSave = {
+        openai: settings.openai,
+        anthropic: settings.anthropic,
+        google: settings.google,
+        github: settings.github,
+        ollama: settings.ollama,
+        preferences: settings.preferences,
+        workflow: settings.workflow
+      };
+  
+      console.log('🚀 Sending settings save request for section:', section);
+      console.log('📤 Data being sent:', JSON.stringify(dataToSave, null, 2));
+      console.log('🔗 API URL:', `${config.apiGatewayUrl}/api/settings/providers`);
+
       const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(dataToSave),
       });
 
-      if (response.ok) {
-        toast.success('Settings saved successfully!');
-      } else {
-        throw new Error('Failed to save settings');
+      console.log('📨 Response received - Status:', response.status);
+  
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Server error response:', errorText);
+        throw new Error(`Server error: ${response.status} - ${errorText}`);
       }
-    } catch (error) {
-      toast.error('Failed to save settings');
-      console.error('Save error:', error);
+  
+      const result = await response.json();
+      console.log('✅ Save successful:', result);
+      toast.success(`${section.charAt(0).toUpperCase() + section.slice(1)} settings saved successfully!`);
+  
+    } catch (error: any) {
+      console.error('❌ Save error:', error);
+      if (error.message.includes('Failed to fetch')) {
+        toast.error('Network error. Please check your connection and try again.');
+      } else {
+        toast.error(`Failed to save: ${error.message}`);
+      }
     } finally {
-      setSaving(false);
+      console.log('🏁 Cleaning up save state for:', section);
+      setSavingSection(null);
     }
   };
+
+  const handleSaveClick = async (section: string) => {
+    console.log('🔘 Save button clicked for section:', section);
+    try {
+      await saveSettings(section);
+    } catch (error) {
+      console.error('❌ Error in handleSaveClick:', error);
+    }
+  };
+
+
 
   const updateProviderSetting = (provider: keyof Omit<ProviderSettings, 'preferences'>, field: string, value: string | boolean) => {
     setSettings(prev => ({
@@ -119,39 +172,14 @@ const Settings: React.FC = () => {
     }));
   };
 
-  const updatePreference = async (field: string, value: boolean | string) => {
-    const newSettings = {
-      ...settings,
+  const updatePreference = (field: string, value: boolean | string) => {
+    setSettings(prev => ({
+      ...prev,
       preferences: {
-        ...settings.preferences,
+        ...prev.preferences,
         [field]: value,
       },
-    };
-    
-    setSettings(newSettings);
-    
-    // Auto-save when theme changes
-    if (field === 'theme') {
-      try {
-        const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(newSettings),
-        });
-
-        if (response.ok) {
-          toast.success('Theme changed successfully!');
-        } else {
-          throw new Error('Failed to save theme setting');
-        }
-      } catch (error) {
-        console.error('Failed to save theme setting:', error);
-        toast.error('Failed to save theme setting');
-      }
-    }
+    }));
   };
 
   const updateWorkflowSetting = (field: string, value: boolean | number) => {
@@ -268,6 +296,24 @@ const Settings: React.FC = () => {
                     />
                   </div>
                 </div>
+
+                {/* Save Button for General Settings */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleSaveClick('general')}
+                    disabled={savingSection === 'general'}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingSection === 'general' ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Saving...
+                      </div>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -328,7 +374,7 @@ const Settings: React.FC = () => {
                     </div>
                     
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Thinking Budget: {settings.workflow.thinkingBudget}
                       </label>
                       <input
@@ -343,6 +389,24 @@ const Settings: React.FC = () => {
                       <p className="text-xs text-gray-500 dark:text-gray-400">Maximum tokens for AI thinking and reasoning</p>
                     </div>
                   </div>
+                </div>
+
+                {/* Save Button for Workflow Settings */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleSaveClick('workflow')}
+                    disabled={savingSection === 'workflow'}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingSection === 'workflow' ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Saving...
+                      </div>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
                 </div>
               </div>
             </div>
@@ -500,6 +564,24 @@ const Settings: React.FC = () => {
                     </div>
                   </div>
                 </div>
+
+                {/* Save Button for AI Provider Settings */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleSaveClick('ai providers')}
+                    disabled={savingSection === 'ai providers'}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingSection === 'ai providers' ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Saving...
+                      </div>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -508,13 +590,13 @@ const Settings: React.FC = () => {
           {activeSection === 'integrations' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-6">Integrations</h2>
-                <p className="text-sm text-gray-400 mb-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Integrations</h2>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-6">
                   Connect with third-party services to enhance your development experience.
                 </p>
 
                 {/* GitHub Integration */}
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center">
                       <input
@@ -524,22 +606,22 @@ const Settings: React.FC = () => {
                         onChange={(e) => updateProviderSetting('github', 'enabled', e.target.checked)}
                         className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
                       />
-                      <label htmlFor="github-enabled" className="ml-2 text-lg font-medium text-white">
+                      <label htmlFor="github-enabled" className="ml-2 text-lg font-medium text-gray-900 dark:text-white">
                         GitHub Integration
                       </label>
                     </div>
                     <div className="text-right">
-                      <span className="text-sm text-gray-400">Repository Access & Code Examples</span>
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Repository Access & Code Examples</span>
                       <div className="flex items-center mt-1">
                         <span className="h-2 w-2 bg-green-500 rounded-full mr-2"></span>
-                        <span className="text-xs text-gray-400">Available</span>
+                        <span className="text-xs text-gray-600 dark:text-gray-400">Available</span>
                       </div>
                     </div>
                   </div>
 
                   <div className="space-y-6">
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                         Personal Access Token
                       </label>
                       <input
@@ -550,17 +632,17 @@ const Settings: React.FC = () => {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
                         placeholder="ghp_xxxxxxxxxx"
                       />
-                      <p className="text-xs text-gray-400 mt-1">
-                        <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300">
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                        <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300">
                           Create a Personal Access Token
                         </a>
                         {' '}to access private repositories. Leave blank for public repositories only.
                       </p>
                     </div>
 
-                    <div className="bg-gray-900 p-4 rounded-md">
-                      <h4 className="text-sm font-medium text-gray-300 mb-2">What you can do with GitHub Integration:</h4>
-                      <ul className="text-sm text-gray-400 space-y-1">
+                    <div className="bg-gray-50 dark:bg-gray-900 p-4 rounded-md">
+                      <h4 className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">What you can do with GitHub Integration:</h4>
+                      <ul className="text-sm text-gray-600 dark:text-gray-400 space-y-1">
                         <li>• Access your GitHub repositories and profiles</li>
                         <li>• Browse and search code examples from GitHub</li>
                         <li>• Import code from repositories into your projects</li>
@@ -587,6 +669,24 @@ const Settings: React.FC = () => {
                     )}
                   </div>
                 </div>
+
+                {/* Save Button for Integrations Settings */}
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => handleSaveClick('integrations')}
+                    disabled={savingSection === 'integrations'}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {savingSection === 'integrations' ? (
+                      <div className="flex items-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Saving...
+                      </div>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
+                </div>
               </div>
             </div>
           )}
@@ -595,39 +695,39 @@ const Settings: React.FC = () => {
           {activeSection === 'account' && (
             <div className="space-y-6">
               <div>
-                <h2 className="text-xl font-semibold text-white mb-6">Account Settings</h2>
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-6">Account Settings</h2>
 
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-700">
-                  <h3 className="text-lg font-medium text-white mb-4">Profile Information</h3>
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                  <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Profile Information</h3>
                   <div className="space-y-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Name</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Name</label>
                       <input
                         type="text"
                         value={user?.name || ''}
                         disabled
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-400"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500"
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-300 mb-2">Email</label>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
                       <input
                         type="email"
                         value={user?.email || ''}
                         disabled
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md bg-gray-50 text-gray-400"
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500"
                       />
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-gray-800 p-6 rounded-lg shadow-sm border border-red-200">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-red-200 dark:border-red-700">
                   <h3 className="text-lg font-medium text-red-600 mb-4">Danger Zone</h3>
                   <div className="space-y-4">
                     <div className="flex items-center justify-between">
                       <div>
-                        <h4 className="text-sm font-medium text-white">Sign Out</h4>
-                        <p className="text-xs text-gray-400">Sign out of your account on this device</p>
+                        <h4 className="text-sm font-medium text-gray-900 dark:text-white">Sign Out</h4>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Sign out of your account on this device</p>
                       </div>
                       <button
                         onClick={logout}
@@ -642,23 +742,7 @@ const Settings: React.FC = () => {
             </div>
           )}
 
-          {/* Save Button */}
-          <div className="mt-8 flex justify-end">
-            <button
-              onClick={saveSettings}
-              disabled={saving}
-              className="px-6 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {saving ? (
-                <div className="flex items-center">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                  Saving...
-                </div>
-              ) : (
-                'Save Settings'
-              )}
-            </button>
-          </div>
+
         </div>
       </div>
     </div>

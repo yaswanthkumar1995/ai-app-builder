@@ -50,27 +50,50 @@ declare global {
 
 // Middleware to extract user from JWT (this will be validated by API Gateway)
 app.use((req, res, next) => {
-  const authHeader = req.headers.authorization;
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    try {
-      // In a real implementation, you'd verify the JWT here
-      // For now, we'll trust the API Gateway has validated it
-      // and extract user info from a custom header set by the gateway
-      const userId = req.headers['x-user-id'] as string;
-      const userEmail = req.headers['x-user-email'] as string;
+  try {
+    // Trust the API Gateway has validated the JWT and extract user info from headers
+    const userId = req.headers['x-user-id'] as string;
+    const userEmail = req.headers['x-user-email'] as string;
 
-      if (userId && userEmail) {
-        req.user = { id: userId, email: userEmail };
-      }
-    } catch (error) {
-      logger.warn('Failed to extract user from request:', error);
+    console.log('Middleware - Headers received:', {
+      'x-user-id': userId,
+      'x-user-email': userEmail,
+      'authorization': req.headers.authorization ? 'present' : 'missing'
+    });
+
+    if (userId && userEmail) {
+      req.user = { id: userId, email: userEmail };
+      console.log('Middleware - User set:', req.user);
+    } else {
+      console.log('Middleware - No user info found in headers');
     }
+  } catch (error) {
+    console.error('Middleware - Failed to extract user from request:', error);
   }
   next();
 });
 
 // Routes
 app.use('/settings', settingsRoutes);
+
+// Test endpoint
+app.post('/test-auth', (req: any, res) => {
+  console.log('Test auth endpoint hit');
+  console.log('Headers:', {
+    authorization: req.headers.authorization,
+    'x-user-id': req.headers['x-user-id'],
+    'x-user-email': req.headers['x-user-email']
+  });
+  console.log('User:', req.user);
+  res.json({ 
+    message: 'Test successful',
+    user: req.user,
+    headers: {
+      'x-user-id': req.headers['x-user-id'],
+      'x-user-email': req.headers['x-user-email']
+    }
+  });
+});
 
 // Health check
 app.get('/health', (req, res) => {
