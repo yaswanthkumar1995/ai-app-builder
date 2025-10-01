@@ -18,19 +18,24 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
 
--- Provider settings table (updated for GitHub and Ollama support)
+-- Provider settings table - one row per user with all provider tokens
 CREATE TABLE IF NOT EXISTS provider_settings (
   id VARCHAR(128) PRIMARY KEY,
-  user_id VARCHAR(128) NOT NULL,
-  provider VARCHAR(50) NOT NULL,
-  api_key TEXT,
-  base_url VARCHAR(255),
-  custom_config JSON,
-  enabled BOOLEAN DEFAULT FALSE,
+  user_id VARCHAR(128) NOT NULL UNIQUE,
+  openai_token TEXT,
+  openai_enabled BOOLEAN DEFAULT FALSE,
+  anthropic_token TEXT,
+  anthropic_enabled BOOLEAN DEFAULT FALSE,
+  google_token TEXT,
+  google_enabled BOOLEAN DEFAULT FALSE,
+  github_token TEXT,
+  github_enabled BOOLEAN DEFAULT FALSE,
+  ollama_base_url VARCHAR(255) DEFAULT 'http://localhost:11434',
+  ollama_enabled BOOLEAN DEFAULT FALSE,
+  ollama_custom_url BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-  UNIQUE KEY unique_user_provider (user_id, provider)
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
 -- User preferences table

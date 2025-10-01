@@ -18,8 +18,33 @@ app.use(cors({
   credentials: true
 }));
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ 
+  limit: '10mb',
+  verify: (req, res, buf) => {
+    console.log('📦 Received body size:', buf.length, 'bytes');
+  }
+}));
 app.use(express.urlencoded({ extended: true }));
+
+// Add timeout middleware
+app.use((req, res, next) => {
+  // Set server timeout to 30 seconds
+  req.setTimeout(30000, () => {
+    console.error('❌ Request timeout for:', req.method, req.url);
+    if (!res.headersSent) {
+      res.status(408).json({ error: 'Request timeout' });
+    }
+  });
+  
+  res.setTimeout(30000, () => {
+    console.error('❌ Response timeout for:', req.method, req.url);
+    if (!res.headersSent) {
+      res.status(408).json({ error: 'Response timeout' });
+    }
+  });
+  
+  next();
+});
 
 // Logger
 const logger = winston.createLogger({
@@ -111,6 +136,13 @@ app.use('*', (req, res) => {
 
 // Error handler
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  // Handle request aborted errors specifically
+  if (error.message === 'request aborted' || error.code === 'ECONNABORTED') {
+    console.log('⚠️ Request aborted:', req.method, req.url);
+    // Don't try to send response as connection is already closed
+    return;
+  }
+
   logger.error('Error occurred:', {
     message: error.message,
     stack: error.stack,
@@ -119,10 +151,13 @@ app.use((error: any, req: express.Request, res: express.Response, next: express.
     ip: req.ip
   });
 
-  res.status(error.statusCode || 500).json({
-    error: error.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
-  });
+  // Check if response is already sent
+  if (!res.headersSent) {
+    res.status(error.statusCode || 500).json({
+      error: error.message || 'Internal server error',
+      ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+    });
+  }
 });
 
 app.listen(PORT, () => {

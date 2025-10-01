@@ -102,7 +102,9 @@ export const useAuthStore = create<AuthState>()(
 
       refreshToken: async () => {
         const { token } = get();
-        if (!token) return;
+        if (!token) {
+          throw new Error('No token available for refresh');
+        }
 
         try {
           const response = await fetch(`${config.apiGatewayUrl}/api/auth/refresh`, {
@@ -115,10 +117,17 @@ export const useAuthStore = create<AuthState>()(
           if (response.ok) {
             const data = await response.json();
             set({ token: data.token });
+            console.log('✅ Token refreshed successfully');
+            return data.token;
+          } else {
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(errorData.error || 'Token refresh failed');
           }
         } catch (error) {
+          console.error('❌ Token refresh failed:', error);
           // Token refresh failed, logout user
           get().logout();
+          throw error;
         }
       },
     }),

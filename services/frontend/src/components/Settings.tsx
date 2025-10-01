@@ -3,6 +3,7 @@ import { useAuthStore } from '../stores/authStore';
 import { config } from '../config';
 import toast from 'react-hot-toast';
 import { useTheme } from '../hooks/useTheme';
+import { logTokenInfo } from '../utils/tokenUtils';
 
 interface ProviderSettings {
   openai: { apiKey: string; enabled: boolean };
@@ -48,6 +49,7 @@ const Settings: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [savingSection, setSavingSection] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState('general');
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
 
   // Apply theme whenever it changes
@@ -61,12 +63,39 @@ const Settings: React.FC = () => {
     if (!token) return;
 
     setLoading(true);
-    try {
-      const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
+    
+    const makeRequest = async (authToken: string) => {
+      return await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${authToken}`,
         },
       });
+    };
+
+    try {
+      let response = await makeRequest(token);
+
+      // If token expired, try to refresh and retry
+      if (response.status === 401) {
+        console.log('🔄 Token expired while fetching settings, attempting refresh...');
+        const { refreshToken } = useAuthStore.getState();
+        
+        try {
+          await refreshToken();
+          const newToken = useAuthStore.getState().token;
+          
+          if (newToken && newToken !== token) {
+            console.log('✅ Token refreshed, retrying fetch...');
+            response = await makeRequest(newToken);
+          } else {
+            throw new Error('Failed to refresh token');
+          }
+        } catch (refreshError) {
+          console.error('❌ Token refresh failed during fetch:', refreshError);
+          logout();
+          return;
+        }
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -92,6 +121,30 @@ const Settings: React.FC = () => {
       toast.error('Authentication required. Please log in again.');
       return;
     }
+
+    // Debug: Check token expiration
+    const tokenInfo = logTokenInfo(token);
+    if (tokenInfo.isExpired) {
+      console.warn('⚠️ Token is expired, trying to refresh:', tokenInfo.timeLeft);
+      try {
+        const { refreshToken } = useAuthStore.getState();
+        if (refreshToken) {
+          console.log('🔄 Attempting token refresh before save...');
+          await refreshToken();
+          console.log('✅ Token refreshed successfully, continuing with save...');
+        } else {
+          console.error('❌ No refresh token available');
+          toast.error('Your session has expired. Please log in again.');
+          logout();
+          return;
+        }
+      } catch (error) {
+        console.error('❌ Token refresh failed:', error);
+        toast.error('Your session has expired. Please log in again.');
+        logout();
+        return;
+      }
+    }
   
     if (savingSection !== null) {
       console.log('❌ Save already in progress for:', savingSection);
@@ -102,45 +155,137 @@ const Settings: React.FC = () => {
     console.log('✅ Starting save process for:', section);
     setSavingSection(section);
 
-    try {
-      const dataToSave = {
-        openai: settings.openai,
-        anthropic: settings.anthropic,
-        google: settings.google,
-        github: settings.github,
-        ollama: settings.ollama,
-        preferences: settings.preferences,
-        workflow: settings.workflow
-      };
+    const makeRequest = async (authToken: string) => {
+      // Only send the section being saved to reduce payload size and conflicts
+      let dataToSave: any = {};
+      
+      if (section === 'integrations') {
+        dataToSave = {
+          github: settings.github,
+        };
+      } else if (section === 'ai providers') {
+        dataToSave = {
+          openai: settings.openai,
+          anthropic: settings.anthropic,
+          google: settings.google,
+          ollama: settings.ollama,
+        };
+      } else if (section === 'general') {
+        dataToSave = {
+          preferences: settings.preferences,
+        };
+      } else if (section === 'workflow') {
+        dataToSave = {
+          workflow: settings.workflow,
+        };
+      } else {
+        // Fallback: send all data
+        dataToSave = {
+          openai: settings.openai,
+          anthropic: settings.anthropic,
+          google: settings.google,
+          github: settings.github,
+          ollama: settings.ollama,
+          preferences: settings.preferences,
+          workflow: settings.workflow
+        };
+      }
   
       console.log('🚀 Sending settings save request for section:', section);
+      console.log('📤 Current settings state:', JSON.stringify(settings, null, 2));
       console.log('📤 Data being sent:', JSON.stringify(dataToSave, null, 2));
       console.log('🔗 API URL:', `${config.apiGatewayUrl}/api/settings/providers`);
 
-      const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(dataToSave),
-      });
+      // Create abort controller for better timeout handling
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
 
+      try {
+        const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${authToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(dataToSave),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
+        return response;
+      } catch (error) {
+        clearTimeout(timeoutId);
+        throw error;
+      }
+    };
+
+    try {
+      let response = await makeRequest(token);
       console.log('📨 Response received - Status:', response.status);
   
+      // If token expired, try to refresh and retry
+      if (response.status === 401) {
+        console.log('🔄 Token expired, attempting refresh...');
+        const { refreshToken } = useAuthStore.getState();
+        
+        try {
+          await refreshToken();
+          const newToken = useAuthStore.getState().token;
+          
+          if (newToken && newToken !== token) {
+            console.log('✅ Token refreshed, retrying request...');
+            response = await makeRequest(newToken);
+            console.log('📨 Retry response - Status:', response.status);
+          } else {
+            throw new Error('Failed to refresh token');
+          }
+        } catch (refreshError) {
+          console.error('❌ Token refresh failed:', refreshError);
+          toast.error('Session expired. Please log in again.');
+          setTokenError('Your session has expired. Please log in again to continue.');
+          logout();
+          return;
+        }
+      }
+
       if (!response.ok) {
         const errorText = await response.text();
         console.error('❌ Server error response:', errorText);
         throw new Error(`Server error: ${response.status} - ${errorText}`);
       }
   
-      const result = await response.json();
+      // Handle different response types
+      let result;
+      const contentType = response.headers.get('content-type');
+      console.log('📋 Response content-type:', contentType);
+      console.log('📋 Response status:', response.status);
+      
+      try {
+        if (response.status === 204 || !contentType?.includes('application/json')) {
+          result = { message: 'Settings saved successfully' };
+        } else {
+          const responseText = await response.text();
+          console.log('📋 Raw response text:', responseText);
+          
+          if (responseText.trim()) {
+            result = JSON.parse(responseText);
+          } else {
+            result = { message: 'Settings saved successfully' };
+          }
+        }
+      } catch (parseError) {
+        console.error('❌ Error parsing response:', parseError);
+        result = { message: 'Settings saved successfully' };
+      }
+      
       console.log('✅ Save successful:', result);
       toast.success(`${section.charAt(0).toUpperCase() + section.slice(1)} settings saved successfully!`);
   
     } catch (error: any) {
       console.error('❌ Save error:', error);
-      if (error.message.includes('Failed to fetch')) {
+      if (error.name === 'AbortError') {
+        toast.error('Request timed out. Please try again.');
+      } else if (error.message.includes('Failed to fetch')) {
         toast.error('Network error. Please check your connection and try again.');
       } else {
         toast.error(`Failed to save: ${error.message}`);

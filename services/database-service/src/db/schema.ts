@@ -12,12 +12,18 @@ export const users = mysqlTable('users', {
 
 export const providerSettings = mysqlTable('provider_settings', {
   id: varchar('id', { length: 128 }).primaryKey().$defaultFn(() => createId()),
-  userId: varchar('user_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
-  provider: varchar('provider', { length: 50 }).notNull(), // 'openai', 'anthropic', 'google', 'github', 'ollama'
-  apiKey: text('api_key'),
-  baseUrl: varchar('base_url', { length: 255 }),
-  customConfig: json('custom_config'),
-  enabled: boolean('enabled').default(false).notNull(),
+  userId: varchar('user_id', { length: 128 }).notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  openaiToken: text('openai_token'),
+  openaiEnabled: boolean('openai_enabled').default(false).notNull(),
+  anthropicToken: text('anthropic_token'),
+  anthropicEnabled: boolean('anthropic_enabled').default(false).notNull(),
+  googleToken: text('google_token'),
+  googleEnabled: boolean('google_enabled').default(false).notNull(),
+  githubToken: text('github_token'),
+  githubEnabled: boolean('github_enabled').default(false).notNull(),
+  ollamaBaseUrl: varchar('ollama_base_url', { length: 255 }).default('http://localhost:11434'),
+  ollamaEnabled: boolean('ollama_enabled').default(false).notNull(),
+  ollamaCustomUrl: boolean('ollama_custom_url').default(false).notNull(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
 });

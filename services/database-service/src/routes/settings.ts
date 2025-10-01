@@ -22,13 +22,28 @@ router.get('/providers', async (req: AuthRequest, res) => {
     const userId = req.user.id;
     console.log('Fetching settings for user ID:', userId);
 
-    // Get provider settings with error handling
+        // Get provider settings with new schema
     let settings;
     try {
       settings = await db
-        .select()
+        .select({
+          id: providerSettings.id,
+          userId: providerSettings.userId,
+          openaiToken: providerSettings.openaiToken,
+          openaiEnabled: providerSettings.openaiEnabled,
+          anthropicToken: providerSettings.anthropicToken,
+          anthropicEnabled: providerSettings.anthropicEnabled,
+          googleToken: providerSettings.googleToken,
+          googleEnabled: providerSettings.googleEnabled,
+          githubToken: providerSettings.githubToken,
+          githubEnabled: providerSettings.githubEnabled,
+          ollamaBaseUrl: providerSettings.ollamaBaseUrl,
+          ollamaEnabled: providerSettings.ollamaEnabled,
+          ollamaCustomUrl: providerSettings.ollamaCustomUrl,
+        })
         .from(providerSettings)
-        .where(eq(providerSettings.userId, userId));
+        .where(eq(providerSettings.userId, userId))
+        .limit(1);
       console.log('Found provider settings:', settings.length);
     } catch (dbError) {
       console.error('Database error fetching provider settings:', dbError);
@@ -70,37 +85,37 @@ router.get('/providers', async (req: AuthRequest, res) => {
       },
     };
 
-    // Populate provider settings with detailed logging
-    settings.forEach(setting => {
-      console.log('Processing setting:', setting.provider, setting.enabled);
-      if (setting.provider === 'openai') {
-        formattedSettings.openai = {
-          apiKey: setting.apiKey || '',
-          enabled: setting.enabled,
-        };
-      } else if (setting.provider === 'anthropic') {
-        formattedSettings.anthropic = {
-          apiKey: setting.apiKey || '',
-          enabled: setting.enabled,
-        };
-      } else if (setting.provider === 'google') {
-        formattedSettings.google = {
-          apiKey: setting.apiKey || '',
-          enabled: setting.enabled,
-        };
-      } else if (setting.provider === 'github') {
-        formattedSettings.github = {
-          apiKey: setting.apiKey || '',
-          enabled: setting.enabled,
-        };
-      } else if (setting.provider === 'ollama') {
-        formattedSettings.ollama = {
-          baseUrl: setting.baseUrl || '',
-          enabled: setting.enabled,
-          customUrl: setting.customConfig ? (setting.customConfig as any).customUrl || false : false,
-        };
-      }
-    });
+    // Populate provider settings with new schema
+    if (settings.length > 0) {
+      const setting = settings[0];
+      console.log('Processing provider settings from new schema');
+      
+      formattedSettings.openai = {
+        apiKey: setting.openaiToken || '',
+        enabled: setting.openaiEnabled || false,
+      };
+      
+      formattedSettings.anthropic = {
+        apiKey: setting.anthropicToken || '',
+        enabled: setting.anthropicEnabled || false,
+      };
+      
+      formattedSettings.google = {
+        apiKey: setting.googleToken || '',
+        enabled: setting.googleEnabled || false,
+      };
+      
+      formattedSettings.github = {
+        apiKey: setting.githubToken || '',
+        enabled: setting.githubEnabled || false,
+      };
+      
+      formattedSettings.ollama = {
+        baseUrl: setting.ollamaBaseUrl || 'http://localhost:11434',
+        enabled: setting.ollamaEnabled || false,
+        customUrl: setting.ollamaCustomUrl || false,
+      };
+    }
 
     // Populate preferences
     if (preferences.length > 0) {
@@ -139,10 +154,9 @@ router.get('/providers', async (req: AuthRequest, res) => {
 
 // Save provider settings for user
 router.post('/providers', async (req: AuthRequest, res) => {
-  console.log('🚀 OPTIMIZED POST /providers received - v2');
+  console.log('🚀 POST /providers received with new schema');
   console.log('🚀 User from middleware:', req.user?.id);
-  console.log('🚀 Request body size:', JSON.stringify(req.body).length, 'characters');
-  console.log('🚀 Request body content:', JSON.stringify(req.body, null, 2));
+  console.log('🚀 Request body:', JSON.stringify(req.body, null, 2));
 
   try {
     if (!req.user?.id) {
@@ -153,156 +167,83 @@ router.post('/providers', async (req: AuthRequest, res) => {
     const userId = req.user.id;
     console.log('✅ Processing settings save for user:', userId);
 
-    // Skip rigid schema validation for partial updates
-    // We'll validate individual provider schemas when they're present
-    const validatedSettings = req.body;
-    
-    // Individual provider schemas for validation
-    const providerSchemas = {
-      openai: z.object({
-        apiKey: z.string(),
-        enabled: z.boolean(),
-      }),
-      anthropic: z.object({
-        apiKey: z.string(),
-        enabled: z.boolean(),
-      }),
-      google: z.object({
-        apiKey: z.string(),
-        enabled: z.boolean(),
-      }),
-      github: z.object({
-        apiKey: z.string(),
-        enabled: z.boolean(),
-      }),
-      ollama: z.object({
-        baseUrl: z.string(),
-        enabled: z.boolean(),
-        customUrl: z.boolean(),
-      }),
-      preferences: z.object({
-        darkMode: z.boolean(),
-        autoSave: z.boolean(),
-        theme: z.string(),
-        notifications: z.boolean(),
-        autoApprove: z.boolean(),
-      }),
-      workflow: z.object({
-        maxChatTurns: z.number(),
-        thinkingBudget: z.number(),
-        autoFixProblems: z.boolean(),
-      }),
+    // Get existing settings for this user
+    const existingSettings = await db
+      .select({
+        id: providerSettings.id,
+        userId: providerSettings.userId,
+      })
+      .from(providerSettings)
+      .where(eq(providerSettings.userId, userId))
+      .limit(1);
+
+    // Prepare update data
+    const updateData: any = {
+      userId,
+      updatedAt: new Date(),
     };
 
-    // Only process providers that are actually in the request
-    const providersToUpdate = ['openai', 'anthropic', 'google', 'github', 'ollama'] as const;
-    const updatedProviders: string[] = [];
-
-    // Get all existing settings for the user at once for better performance
-    const existingSettings = await db
-      .select()
-      .from(providerSettings)
-      .where(eq(providerSettings.userId, userId));
-
-    const existingMap = new Map(existingSettings.map(s => [s.provider, s]));
-
-    for (const provider of providersToUpdate) {
-      if (!validatedSettings[provider]) continue; // Skip if not in request
-
-      // Validate the individual provider data if it exists
-      if (providerSchemas[provider]) {
-        try {
-          providerSchemas[provider].parse(validatedSettings[provider]);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            console.log(`❌ Validation error for ${provider}:`, error.errors);
-            return res.status(400).json({ 
-              error: `Invalid data for ${provider}`, 
-              details: error.errors 
-            });
-          }
-        }
-      }
-
-      const providerData = validatedSettings[provider] as any;
-      let insertData: any = {
-        userId,
-        provider,
-        enabled: providerData.enabled,
-      };
-
-      // Handle apiKey for non-ollama providers
-      if (provider !== 'ollama') {
-        insertData.apiKey = providerData.apiKey;
-      }
-
-      // Handle special fields for ollama
-      if (provider === 'ollama') {
-        insertData.baseUrl = providerData.baseUrl;
-        insertData.customConfig = { customUrl: providerData.customUrl };
-      }
-
-      // Use the pre-fetched existing settings
-      const existing = existingMap.get(provider);
-
-      if (existing) {
-        await db
-          .update(providerSettings)
-          .set({
-            ...insertData,
-            updatedAt: new Date(),
-          })
-          .where(eq(providerSettings.id, existing.id));
-      } else {
-        await db.insert(providerSettings).values(insertData);
-      }
-
-      updatedProviders.push(provider);
+    // Handle each provider specifically
+    if (req.body.openai) {
+      updateData.openaiToken = req.body.openai.apiKey || '';
+      updateData.openaiEnabled = req.body.openai.enabled || false;
+      console.log('� Setting OpenAI:', updateData.openaiEnabled ? 'enabled' : 'disabled');
     }
 
-    // Only update preferences if they're in the request
-    if (validatedSettings.preferences || validatedSettings.workflow) {
-      // Validate preferences and workflow if present
-      if (validatedSettings.preferences && providerSchemas.preferences) {
-        try {
-          providerSchemas.preferences.parse(validatedSettings.preferences);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            console.log('❌ Validation error for preferences:', error.errors);
-            return res.status(400).json({ 
-              error: 'Invalid preferences data', 
-              details: error.errors 
-            });
-          }
-        }
-      }
+    if (req.body.anthropic) {
+      updateData.anthropicToken = req.body.anthropic.apiKey || '';
+      updateData.anthropicEnabled = req.body.anthropic.enabled || false;
+      console.log('🔧 Setting Anthropic:', updateData.anthropicEnabled ? 'enabled' : 'disabled');
+    }
 
-      if (validatedSettings.workflow && providerSchemas.workflow) {
-        try {
-          providerSchemas.workflow.parse(validatedSettings.workflow);
-        } catch (error) {
-          if (error instanceof z.ZodError) {
-            console.log('❌ Validation error for workflow:', error.errors);
-            return res.status(400).json({ 
-              error: 'Invalid workflow data', 
-              details: error.errors 
-            });
-          }
-        }
-      }
-      const combinedPreferences = {
-        ...(validatedSettings.preferences || {}),
-        ...(validatedSettings.workflow ? { workflow: validatedSettings.workflow } : {}),
-      };
+    if (req.body.google) {
+      updateData.googleToken = req.body.google.apiKey || '';
+      updateData.googleEnabled = req.body.google.enabled || false;
+      console.log('🔧 Setting Google:', updateData.googleEnabled ? 'enabled' : 'disabled');
+    }
 
+    if (req.body.github) {
+      updateData.githubToken = req.body.github.apiKey || '';
+      updateData.githubEnabled = req.body.github.enabled || false;
+      console.log('🔧 Setting GitHub:', updateData.githubEnabled ? 'enabled' : 'disabled');
+      console.log('🔍 GitHub token length:', updateData.githubToken.length, 'characters');
+    }
+
+    if (req.body.ollama) {
+      updateData.ollamaBaseUrl = req.body.ollama.baseUrl || 'http://localhost:11434';
+      updateData.ollamaEnabled = req.body.ollama.enabled || false;
+      updateData.ollamaCustomUrl = req.body.ollama.customUrl || false;
+      console.log('🔧 Setting Ollama:', updateData.ollamaEnabled ? 'enabled' : 'disabled');
+    }
+
+    // Update or insert provider settings
+    if (existingSettings.length > 0) {
+      console.log('🔄 Updating existing provider settings...');
+      await db
+        .update(providerSettings)
+        .set(updateData)
+        .where(eq(providerSettings.id, existingSettings[0].id));
+    } else {
+      console.log('➕ Creating new provider settings...');
+      await db.insert(providerSettings).values(updateData);
+    }
+
+    // Handle preferences if present
+    if (req.body.preferences || req.body.workflow) {
+      console.log('🔧 Processing preferences...');
+      
       const existingPrefs = await db
         .select()
         .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
         .limit(1);
 
+      const combinedPreferences = {
+        ...(req.body.preferences || {}),
+        ...(req.body.workflow ? { workflow: req.body.workflow } : {}),
+      };
+
       if (existingPrefs.length > 0) {
-        // Merge with existing preferences instead of overwriting
         const currentPrefs = (existingPrefs[0].preferences as any) || {};
         const mergedPrefs = { ...currentPrefs, ...combinedPreferences };
         
@@ -314,7 +255,6 @@ router.post('/providers', async (req: AuthRequest, res) => {
           })
           .where(eq(userPreferences.id, existingPrefs[0].id));
       } else {
-        // For new preferences, provide defaults
         const defaultPrefs = {
           darkMode: false,
           autoSave: true,
@@ -329,19 +269,38 @@ router.post('/providers', async (req: AuthRequest, res) => {
           preferences: defaultPrefs,
         });
       }
+      
+      console.log('✅ Preferences saved successfully');
     }
 
-    console.log('✅ Settings saved successfully for user:', userId);
-    console.log('📝 Updated providers:', updatedProviders);
+    console.log('✅ All settings saved successfully for user:', userId);
     
-    res.json({ message: 'Settings saved successfully' });
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      console.log('❌ Validation error:', error.errors);
-      return res.status(400).json({ error: 'Invalid settings data', details: error.errors });
-    }
+    // Immediately respond to prevent timeout/connection issues
+    res.setHeader('Connection', 'close');
+    res.status(200).json({ 
+      message: 'Settings saved successfully',
+      success: true,
+      timestamp: new Date().toISOString()
+    });
+    
+    // Force response to be sent immediately
+    res.end();
+    return;
 
-    console.error('❌ Error saving provider settings:', error);
+  } catch (error) {
+    console.error('❌ Error saving settings:', error);
+    
+    // Check if it's a database constraint error
+    if (error && typeof error === 'object' && 'code' in error) {
+      console.error('Database error code:', (error as any).code);
+      console.error('Database error message:', (error as any).message);
+      
+      if ((error as any).code === 'ER_DATA_TOO_LONG') {
+        console.error('❌ Data too long for database field');
+        return res.status(400).json({ error: 'API key is too long for database storage' });
+      }
+    }
+    
     res.status(500).json({ error: 'Internal server error' });
   }
 });

@@ -53,7 +53,9 @@ app.use('/api/auth', (req, res, next) => {
 app.use(helmet());
 app.use(cors({
   origin: process.env.CORS_ORIGIN || "http://localhost:3000",
-  credentials: true
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-user-id', 'x-user-email']
 }));
 app.use(compression());
 app.use(express.json({ limit: '10mb' }));
@@ -101,38 +103,46 @@ app.use('/api/projects', createProxyMiddleware({
   pathRewrite: { '^/api/projects': '/projects' }
 }));
 
-app.use('/api/settings', (req: any, res: Response, next: NextFunction) => {
+// Direct settings route implementation (bypasses problematic proxy)
+app.use('/api/settings', async (req: any, res: Response) => {
   console.log('🔥 Settings request received:', req.method, req.url, 'User:', req.user?.email);
-  next();
-}, createProxyMiddleware({
-  target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
-  changeOrigin: true,
-  pathRewrite: { '^/api/settings': '/settings' },
-  timeout: 60000, // 60 second timeout
-  onProxyReq: (proxyReq: any, req: any, res: any) => {
-    // Forward user information headers
-    if (req.headers['x-user-id']) {
-      proxyReq.setHeader('x-user-id', req.headers['x-user-id']);
-    }
-    if (req.headers['x-user-email']) {
-      proxyReq.setHeader('x-user-email', req.headers['x-user-email']);
-    }
-    if (req.headers.authorization) {
-      proxyReq.setHeader('authorization', req.headers.authorization);
-    }
-    console.log('🚀 Proxying settings request with headers:', {
-      'x-user-id': req.headers['x-user-id'],
-      'x-user-email': req.headers['x-user-email'],
-      'authorization': req.headers.authorization ? 'present' : 'missing'
+  
+  try {
+    const databaseServiceUrl = process.env.DATABASE_SERVICE_URL || 'http://database-service:3003';
+    const targetUrl = `${databaseServiceUrl}/settings${req.url.replace('/api/settings', '')}`;
+    
+    console.log('🚀 Direct request to:', targetUrl);
+    console.log('📦 Request body:', req.body);
+    
+    // Make direct HTTP request to database service
+    const response = await fetch(targetUrl, {
+      method: req.method,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-user-id': req.user?.id || '',
+        'x-user-email': req.user?.email || '',
+        'authorization': req.headers.authorization || '',
+      },
+      body: req.method !== 'GET' ? JSON.stringify(req.body) : undefined,
+      signal: AbortSignal.timeout(30000) // 30 second timeout
     });
-  },
-  onProxyRes: (proxyRes: any, req: any, res: any) => {
-    console.log('✅ Settings proxy response:', proxyRes.statusCode);
-  },
-  onError: (err: any, req: any, res: any) => {
-    console.error('❌ Settings proxy error:', err.message);
+    
+    const data = await response.text();
+    console.log('✅ Database service response:', response.status, data);
+    
+    // Forward response
+    res.status(response.status);
+    if (response.headers.get('content-type')?.includes('json')) {
+      res.json(JSON.parse(data));
+    } else {
+      res.send(data);
+    }
+    
+  } catch (error) {
+    console.error('❌ Direct settings request error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
-}));
+});
 
 // WebSocket setup
 setupWebSocket(io);
