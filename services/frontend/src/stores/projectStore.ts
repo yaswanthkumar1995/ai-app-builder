@@ -19,6 +19,9 @@ export interface Project {
   files: FileNode[];
   createdAt: Date;
   updatedAt: Date;
+  githubRepo?: string;
+  githubBranch?: string;
+  isGithubProject?: boolean;
 }
 
 interface ProjectState {
@@ -28,7 +31,7 @@ interface ProjectState {
   isLoading: boolean;
   
   // Actions
-  createProject: (name: string, description?: string) => void;
+  createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[] }) => void;
   loadProject: (projectId: string) => void;
   saveProject: () => void;
   deleteProject: (projectId: string) => void;
@@ -135,14 +138,17 @@ export const useProjectStore = create<ProjectState>()(
       selectedFile: null,
       isLoading: false,
 
-      createProject: (name: string, description?: string) => {
+      createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[] }) => {
         const newProject: Project = {
           id: Date.now().toString(),
           name,
           description,
-          files: [],
+          files: githubData?.files || [],
           createdAt: new Date(),
           updatedAt: new Date(),
+          githubRepo: githubData?.repo,
+          githubBranch: githubData?.branch,
+          isGithubProject: !!githubData,
         };
 
         set((state) => ({

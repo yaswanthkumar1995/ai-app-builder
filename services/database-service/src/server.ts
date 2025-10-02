@@ -5,6 +5,8 @@ import compression from 'compression';
 import dotenv from 'dotenv';
 import winston from 'winston';
 import settingsRoutes from './routes/settings';
+import githubRoutes from './routes/github-token';
+import terminalSessionsRoutes from './routes/terminal-sessions';
 
 dotenv.config();
 
@@ -100,6 +102,8 @@ app.use((req, res, next) => {
 
 // Routes
 app.use('/settings', settingsRoutes);
+app.use('/github', githubRoutes);
+app.use('/terminal-sessions', terminalSessionsRoutes);
 
 // Test endpoint
 app.post('/test-auth', (req: any, res) => {

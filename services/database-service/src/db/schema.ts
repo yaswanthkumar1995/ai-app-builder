@@ -47,6 +47,9 @@ export const projects = mysqlTable('projects', {
   userId: varchar('user_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
   name: varchar('name', { length: 255 }).notNull(),
   description: text('description'),
+  githubRepo: varchar('github_repo', { length: 500 }), // GitHub repository URL
+  githubBranch: varchar('github_branch', { length: 100 }).default('main'), // GitHub branch
+  isGithubProject: boolean('is_github_project').default(false).notNull(),
   files: json('files').$type<Array<{
     name: string;
     path: string;
@@ -55,6 +58,19 @@ export const projects = mysqlTable('projects', {
   }>>(),
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
+});
+
+export const terminalSessions = mysqlTable('terminal_sessions', {
+  id: varchar('id', { length: 128 }).primaryKey().$defaultFn(() => createId()),
+  userId: varchar('user_id', { length: 128 }).notNull().references(() => users.id, { onDelete: 'cascade' }),
+  projectId: varchar('project_id', { length: 128 }).references(() => projects.id, { onDelete: 'cascade' }),
+  sessionId: varchar('session_id', { length: 256 }).notNull().unique(),
+  status: varchar('status', { length: 50 }).default('active').notNull(), // active, inactive, terminated
+  workingDirectory: varchar('working_directory', { length: 500 }).default('/workspace'),
+  environment: json('environment').$type<Record<string, string>>(), // Environment variables
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+  updatedAt: timestamp('updated_at').defaultNow().notNull(),
+  lastAccessedAt: timestamp('last_accessed_at').defaultNow().notNull(),
 });
 
 export const chatSessions = mysqlTable('chat_sessions', {

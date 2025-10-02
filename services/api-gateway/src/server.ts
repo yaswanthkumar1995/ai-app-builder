@@ -28,6 +28,25 @@ app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// Terminal Service routes - MUST be before other middleware to avoid conflicts
+app.use('/terminal', (req, res, next) => {
+  console.log('🔥 Terminal request received:', req.method, req.url);
+  next();
+}, createProxyMiddleware({
+  target: 'http://terminal-service:3004',
+  changeOrigin: true,
+  logLevel: 'debug',
+  onProxyReq: (proxyReq, req, res) => {
+    console.log('🚀 Proxying terminal request to:', proxyReq.getHeader('host'), proxyReq.path);
+  },
+  onProxyRes: (proxyRes, req, res) => {
+    console.log('✅ Terminal proxy response:', proxyRes.statusCode);
+  },
+  onError: (err, req, res) => {
+    console.error('❌ Terminal proxy error:', err);
+  }
+}));
+
 // Auth routes (no auth middleware needed, no rate limiting)
 app.use('/api/auth', (req, res, next) => {
   console.log('Auth request received:', req.method, req.url);
@@ -101,6 +120,29 @@ app.use('/api/projects', createProxyMiddleware({
   target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
   changeOrigin: true,
   pathRewrite: { '^/api/projects': '/projects' }
+}));
+
+// GitHub integration routes
+app.use('/api/github', createProxyMiddleware({
+  target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
+  changeOrigin: true,
+  pathRewrite: { '^/api/github': '/github' }
+}));
+
+// Terminal session routes
+app.use('/api/terminal-sessions', createProxyMiddleware({
+  target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
+  changeOrigin: true,
+  pathRewrite: { '^/api/terminal-sessions': '/terminal-sessions' }
+}));
+
+
+
+// Real Terminal Service routes
+app.use('/api/terminal', createProxyMiddleware({
+  target: 'http://terminal-service:3004',
+  changeOrigin: true,
+  pathRewrite: { '^/api/terminal': '/api/terminal' }
 }));
 
 // Direct settings route implementation (bypasses problematic proxy)

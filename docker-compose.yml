@@ -27,6 +27,8 @@ services:
       - ai-service
       - database-service
       - redis
+    volumes:
+      - user_workspaces:/workspaces
 
   # Auth Service
   auth-service:
@@ -63,6 +65,7 @@ services:
       - chromadb
     volumes:
       - ./tmp:/tmp
+      - user_workspaces:/workspaces
 
   # Database Service (API layer for MySQL)
   database-service:
@@ -83,6 +86,8 @@ services:
     depends_on:
       - mysql
       - chromadb
+    volumes:
+      - user_workspaces:/workspaces
 
   # MySQL Database
   mysql:
@@ -117,10 +122,25 @@ services:
     volumes:
       - redis_data:/data
 
+
+
+  # Terminal Service - Simple command execution
+  terminal-service:
+    build: ./services/terminal-service
+    ports:
+      - "3004:3004"
+    volumes:
+      - user_workspaces:/workspaces
+    environment:
+      - NODE_ENV=development
+    depends_on:
+      - database-service
+
 volumes:
   mysql_data:
   chromadb_data:
   redis_data:
+  user_workspaces:
 
 networks:
   default:

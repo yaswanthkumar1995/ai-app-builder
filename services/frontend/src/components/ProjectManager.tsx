@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useProjectStore } from '../stores/projectStore';
 import { PlusIcon, FolderIcon, DocumentIcon, TrashIcon, PencilIcon } from '@heroicons/react/24/outline';
+import GitHubProjectImporter from './GitHubProjectImporter';
 import toast from 'react-hot-toast';
 
 const ProjectManager: React.FC = () => {
@@ -16,6 +17,8 @@ const ProjectManager: React.FC = () => {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
+  const [showGitHubImportModal, setShowGitHubImportModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<'projects' | 'github-import'>('projects');
   const [newProjectName, setNewProjectName] = useState('');
   const [newProjectDescription, setNewProjectDescription] = useState('');
   const [importData, setImportData] = useState('');
@@ -107,8 +110,39 @@ const ProjectManager: React.FC = () => {
           </div>
         </div>
 
-        {/* Projects Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {/* Tab Navigation */}
+        <div className="mb-8">
+          <div className="border-b border-gray-700">
+            <nav className="-mb-px flex space-x-8">
+              <button
+                onClick={() => setActiveTab('projects')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'projects'
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                }`}
+              >
+                My Projects
+              </button>
+              <button
+                onClick={() => setActiveTab('github-import')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm transition-colors ${
+                  activeTab === 'github-import'
+                    ? 'border-blue-500 text-blue-400'
+                    : 'border-transparent text-gray-400 hover:text-gray-300 hover:border-gray-300'
+                }`}
+              >
+                Import from GitHub
+              </button>
+            </nav>
+          </div>
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'projects' && (
+          <>
+            {/* Projects Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {projects.map((project) => (
             <div
               key={project.id}
@@ -190,6 +224,13 @@ const ProjectManager: React.FC = () => {
               Create Your First Project
             </button>
           </div>
+        )}
+          </>
+        )}
+
+        {/* GitHub Import Tab */}
+        {activeTab === 'github-import' && (
+          <GitHubProjectImporter />
         )}
       </div>
 
