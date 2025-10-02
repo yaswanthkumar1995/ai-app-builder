@@ -155,23 +155,25 @@ class TerminalManager {
       
       // Create PTY process with login shell for the user (enables bash completion)
       const ptyProcess = pty.spawn('su', ['-l', username], {
-        name: 'xterm-256color',
+        name: 'xterm',
         cols: 120,
         rows: 30,
         cwd: workingDir,
         env: {
-          TERM: 'xterm-256color',
-          LANG: 'en_US.UTF-8',
-          LC_ALL: 'en_US.UTF-8',
-          COLORTERM: 'truecolor'
+          TERM: 'xterm',
+          LANG: 'C',
+          LC_ALL: 'C',
+          PS1: username + '@terminal:\\w$ ',
+          DEBIAN_FRONTEND: 'noninteractive',
+          BASH_SILENCE_DEPRECATION_WARNING: '1'
         }
       });
       
-      // Send initial commands to set up the environment properly
+      // Initialize terminal with clean environment
       setTimeout(() => {
-        ptyProcess.write('export PS1="\\[\\033[01;32m\\]' + username + '@terminal\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]$ "\r');
-        ptyProcess.write('clear\r');
-      }, 1000);
+        // Set environment silently 
+        ptyProcess.write('clear\r'); // Send clear command instead of form feed
+      }, 1500);
       
       const sessionInfo = {
         username,
@@ -213,27 +215,40 @@ class TerminalManager {
         await this.executeCommand(`usermod -aG sudo ${username}`);
         
         // Set up shell environment with proper PATH and bash completion
-        const bashrc = `# Enable bash completion - multiple sources
+        const bashrc = `# Enable bash completion silently
 if [ -f /etc/bash_completion ]; then
-    . /etc/bash_completion
+    . /etc/bash_completion 2>/dev/null
 fi
 
 if [ -f /usr/share/bash-completion/bash_completion ]; then
-    . /usr/share/bash-completion/bash_completion
+    . /usr/share/bash-completion/bash_completion 2>/dev/null
 fi
 
-# Enable programmable completion features
+# Enable programmable completion features silently
 if [ -f /etc/bash_completion ] && ! shopt -oq posix; then
-    . /etc/bash_completion
+    . /etc/bash_completion 2>/dev/null
 fi
 
-# Set up environment with colorful prompt
-export PS1='\\[\\033[01;32m\\]${username}@terminal\\[\\033[00m\\]:\\[\\033[01;34m\\]\\w\\[\\033[00m\\]$ '
+# Enable readline settings for better completion (silently)
+bind "set completion-ignore-case on" 2>/dev/null
+bind "set show-all-if-ambiguous on" 2>/dev/null
+bind "set visible-stats on" 2>/dev/null
+bind "set mark-symlinked-directories on" 2>/dev/null
+bind "set colored-stats on" 2>/dev/null
+
+# Configure key bindings for cross-platform compatibility
+bind "\\177" backward-delete-char 2>/dev/null  # DEL character (backspace)
+bind "\\e[3~" delete-char 2>/dev/null          # Forward delete
+
+# Set up environment with simple prompt
+export PS1='${username}@terminal:\\w$ '
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export HOME=${homeDir}
-export TERM=xterm-256color
-export LANG=en_US.UTF-8
-export LC_ALL=en_US.UTF-8
+export TERM=xterm
+export LANG=C
+export LC_ALL=C
+export DEBIAN_FRONTEND=noninteractive
+export BASH_SILENCE_DEPRECATION_WARNING=1
 
 # Enable command history
 export HISTSIZE=1000
