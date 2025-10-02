@@ -203,11 +203,14 @@ const EmbeddedTerminal: React.FC = () => {
   };
 
   const handleInput = (input: string) => {
-    if (socketRef.current && user) {
+    if (socketRef.current && user && activeSession) {
+      // Try both sessionId and userId for compatibility
       socketRef.current.emit('terminal-input', {
+        sessionId: activeSession.sessionId,
         userId: user.id,
-        input: input
+        data: input
       });
+      console.log('Sending terminal input:', JSON.stringify(input), 'sessionId:', activeSession.sessionId);
     }
   };
 
@@ -252,12 +255,17 @@ const EmbeddedTerminal: React.FC = () => {
     // Handle special keys
     else if (key === 'Enter') {
       input = '\r';
-    } else if (key === 'Backspace') {
-      input = '\x7f'; // DEL character (127)
     } else if (key === 'Delete') {
-      // Detect platform and handle Delete key accordingly
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0 || 
-                    navigator.userAgent.toUpperCase().indexOf('MAC') >= 0;
+      // Detect platform using modern API with fallback
+      const isMac = (() => {
+        // Modern approach using userAgentData (when available)
+        if ('userAgentData' in navigator && (navigator as any).userAgentData?.platform) {
+          return (navigator as any).userAgentData.platform.toLowerCase() === 'macos';
+        }
+        // Fallback to userAgent string parsing
+        return /Mac|iPhone|iPad|iPod/i.test(navigator.userAgent);
+      })();
+      
       if (isMac) {
         // On Mac, the "Delete" key functions as backspace
         input = '\x7f'; // Same as backspace
@@ -267,6 +275,8 @@ const EmbeddedTerminal: React.FC = () => {
         input = '\x1b[3~'; // Forward delete escape sequence
         console.log('Delete key pressed (Windows forward delete), sending:', JSON.stringify(input));
       }
+    } else if (key === 'Backspace') {
+      input = '\x7f'; // DEL character (127)
     } else if (key === 'Tab') {
       input = '\t';
     } else if (key === 'ArrowUp') {

@@ -422,9 +422,10 @@ io.on('connection', (socket) => {
 
   socket.on('terminal-input', async (data) => {
     try {
-      const { userId, input } = data;
-      console.log('Terminal Input:', JSON.stringify(input));
-      terminalManager.writeToTerminal(userId, input);
+      const { userId, sessionId, input, data: inputData } = data;
+      const terminalInput = input || inputData; // Support both property names
+      console.log('Terminal Input received:', JSON.stringify(terminalInput), 'from userId:', userId, 'sessionId:', sessionId);
+      terminalManager.writeToTerminal(userId, terminalInput);
     } catch (error) {
       console.error('Error writing to terminal:', error);
       socket.emit('terminal-error', {
