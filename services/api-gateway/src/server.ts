@@ -152,7 +152,18 @@ app.use('/api/git', createProxyMiddleware({
   changeOrigin: true,
   pathRewrite: { '^/api/git': '/git' },
   timeout: 120000, // 2 minute timeout for git clone operations
-  proxyTimeout: 120000
+  proxyTimeout: 120000,
+  onProxyReq: (proxyReq, req) => {
+    // Re-serialize JSON bodies that were parsed by Express before proxying
+    if (!req.body || Object.keys(req.body).length === 0) {
+      return;
+    }
+
+    const bodyData = JSON.stringify(req.body);
+    proxyReq.setHeader('Content-Type', 'application/json');
+    proxyReq.setHeader('Content-Length', Buffer.byteLength(bodyData));
+    proxyReq.write(bodyData);
+  }
 }));
 
 // Workspace state management

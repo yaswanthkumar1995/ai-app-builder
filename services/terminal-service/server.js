@@ -649,69 +649,64 @@ app.get('/workspace/files/:userId', async (req, res) => {
       });
     }
 
-    const buildFileTree = (dirPath, relativePath = '', readContent = true) => {
-      const items = [];
-      
+    const collectedFiles = [];
+
+    const traverseWorkspace = (dirPath, relativePath = '') => {
+      let entries = [];
       try {
-        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
-        
-        console.log(`📂 Reading directory: ${dirPath}, found ${entries.length} entries`);
-
-        for (const entry of entries) {
-          // Skip node_modules and some system files, but include .git for repo detection
-          if (entry.name === 'node_modules' || entry.name === '.DS_Store') {
-            continue;
-          }
-
-          const fullPath = path.join(dirPath, entry.name);
-          const relPath = relativePath ? `/${relativePath}/${entry.name}` : `/${entry.name}`;
-
-          if (entry.isDirectory()) {
-            // Recursively read subdirectories
-            const children = buildFileTree(fullPath, relPath.substring(1), readContent);
-            items.push({
-              id: `folder-${relPath}`,
-              name: entry.name,
-              path: relPath,
-              type: 'folder',
-              children
-            });
-          } else {
-            const fileItem = {
-              id: `file-${relPath}`,
-              name: entry.name,
-              path: relPath,
-              type: 'file'
-            };
-            
-            // Read file content for small files (< 1MB)
-            if (readContent) {
-              try {
-                const stats = fs.statSync(fullPath);
-                if (stats.size < 1024 * 1024) { // 1MB limit
-                  fileItem.content = fs.readFileSync(fullPath, 'utf8');
-                }
-              } catch (err) {
-                console.warn(`Could not read file content for ${fullPath}:`, err.message);
-              }
-            }
-            
-            items.push(fileItem);
-          }
-        }
+        entries = fs.readdirSync(dirPath, { withFileTypes: true });
       } catch (err) {
         console.error(`Error reading directory ${dirPath}:`, err);
+        return;
       }
 
-      return items;
+      console.log(`📂 Reading directory: ${dirPath}, found ${entries.length} entries`);
+
+      for (const entry of entries) {
+        // Skip noisy/system directories
+        if (entry.name === 'node_modules' || entry.name === '.DS_Store') {
+          continue;
+        }
+
+        const fullPath = path.join(dirPath, entry.name);
+        const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+        if (entry.isDirectory()) {
+          collectedFiles.push({
+            id: `folder-${relPath}`,
+            name: entry.name,
+            path: relPath,
+            type: 'folder'
+          });
+          traverseWorkspace(fullPath, relPath);
+        } else {
+          const fileItem = {
+            id: `file-${relPath}`,
+            name: entry.name,
+            path: relPath,
+            type: 'file'
+          };
+
+          try {
+            const stats = fs.statSync(fullPath);
+            if (stats.size < 1024 * 1024) {
+              fileItem.content = fs.readFileSync(fullPath, 'utf8');
+            }
+          } catch (err) {
+            console.warn(`Could not read file content for ${fullPath}:`, err.message);
+          }
+
+          collectedFiles.push(fileItem);
+        }
+      }
     };
 
-    const files = buildFileTree(workspacePath);
-    console.log(`✅ Built file tree with ${files.length} root items`);
+    traverseWorkspace(workspacePath);
+    console.log(`✅ Collected ${collectedFiles.length} workspace entries`);
 
     res.json({
       success: true,
-      files
+      files: collectedFiles
     });
   } catch (error) {
     console.error('Error listing workspace files:', error);

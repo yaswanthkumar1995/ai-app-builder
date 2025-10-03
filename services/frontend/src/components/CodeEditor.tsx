@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
-import { FolderIcon, ChatBubbleLeftRightIcon, XMarkIcon, CommandLineIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { FolderIcon, ChatBubbleLeftRightIcon, XMarkIcon, CommandLineIcon, ArrowPathIcon, DocumentIcon } from '@heroicons/react/24/outline';
 import { useAuthStore } from '../stores/authStore';
 import { config } from '../config';
 import FileTree from './FileTree';
@@ -39,8 +39,16 @@ const CodeEditor: React.FC = () => {
   const [showChat, setShowChat] = useState(false);
   const [showTerminal, setShowTerminal] = useState(false);
   const [terminalHeight, setTerminalHeight] = useState(300);
+  const [fileTreeWidth, setFileTreeWidth] = useState(320);
+  const [chatWidth, setChatWidth] = useState(320);
+  const MIN_EDITOR_WIDTH = 360;
+  const MIN_FILETREE_WIDTH = 220;
+  const MIN_CHAT_WIDTH = 260;
+  const fileTreeWidthRef = useRef(fileTreeWidth);
+  const chatWidthRef = useRef(chatWidth);
   const editorRef = useRef<any>(null);
   const resizerRef = useRef<HTMLDivElement>(null);
+  const editorContainerRef = useRef<HTMLDivElement>(null);
   const { token, user } = useAuthStore();
   const [repos, setRepos] = useState<any[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
@@ -64,6 +72,14 @@ const CodeEditor: React.FC = () => {
       gitOpsRef.current = null;
     }
   }, [token, user?.id]);
+
+  useEffect(() => {
+    fileTreeWidthRef.current = fileTreeWidth;
+  }, [fileTreeWidth]);
+
+  useEffect(() => {
+    chatWidthRef.current = chatWidth;
+  }, [chatWidth]);
 
   const fetchRepos = useCallback(async () => {
     if (!token) return [] as any[];
@@ -443,6 +459,111 @@ const CodeEditor: React.FC = () => {
     };
   }, [showTerminal]);
 
+  const clampPanelWidths = useCallback(() => {
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+
+    if (showFileTree) {
+      const availableWidth = rect.width - (showChat ? chatWidthRef.current : 0) - MIN_EDITOR_WIDTH;
+      const maxWidth = Math.max(MIN_FILETREE_WIDTH, availableWidth);
+      setFileTreeWidth((prev) => {
+        const next = Math.max(MIN_FILETREE_WIDTH, Math.min(maxWidth, prev));
+        fileTreeWidthRef.current = next;
+        return next;
+      });
+    }
+
+    if (showChat) {
+      const availableWidth = rect.width - (showFileTree ? fileTreeWidthRef.current : 0) - MIN_EDITOR_WIDTH;
+      const maxWidth = Math.max(MIN_CHAT_WIDTH, availableWidth);
+      setChatWidth((prev) => {
+        const next = Math.max(MIN_CHAT_WIDTH, Math.min(maxWidth, prev));
+        chatWidthRef.current = next;
+        return next;
+      });
+    }
+  }, [showChat, showFileTree]);
+
+  const startFileTreeResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !showFileTree) return;
+    event.preventDefault();
+
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    const startX = event.clientX;
+  const startWidth = fileTreeWidthRef.current;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const availableWidth = rect.width - (showChat ? chatWidthRef.current : 0) - MIN_EDITOR_WIDTH;
+      const maxWidth = Math.max(MIN_FILETREE_WIDTH, availableWidth);
+      const dx = e.clientX - startX;
+      const nextWidth = startWidth + dx;
+      const clamped = Math.max(MIN_FILETREE_WIDTH, Math.min(maxWidth, nextWidth));
+      setFileTreeWidth(clamped);
+      fileTreeWidthRef.current = clamped;
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [showChat, showFileTree, chatWidthRef]);
+
+  const startChatResize = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (event.button !== 0 || !showChat) return;
+    event.preventDefault();
+
+    const container = editorContainerRef.current;
+    if (!container) return;
+
+    const startX = event.clientX;
+  const startWidth = chatWidthRef.current;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const availableWidth = rect.width - (showFileTree ? fileTreeWidthRef.current : 0) - MIN_EDITOR_WIDTH;
+      const maxWidth = Math.max(MIN_CHAT_WIDTH, availableWidth);
+      const dx = e.clientX - startX;
+      const nextWidth = startWidth - dx;
+      const clamped = Math.max(MIN_CHAT_WIDTH, Math.min(maxWidth, nextWidth));
+      setChatWidth(clamped);
+      chatWidthRef.current = clamped;
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'default';
+      document.body.style.userSelect = 'auto';
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  }, [showChat, showFileTree, fileTreeWidthRef]);
+
+  useEffect(() => {
+    clampPanelWidths();
+  }, [clampPanelWidths]);
+
+  useEffect(() => {
+    const handleResize = () => clampPanelWidths();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [clampPanelWidths]);
+
   const handleFileSelect = (file: FileNode) => {
     selectFile(file);
   };
@@ -501,31 +622,78 @@ const CodeEditor: React.FC = () => {
     return languageMap[extension || ''] || 'plaintext';
   };
 
+  const getLanguageLabel = (path: string): string => {
+    const extension = path.split('.').pop()?.toLowerCase();
+    if (!extension) return 'PLAINTEXT';
+    const labelMap: { [key: string]: string } = {
+      'js': 'JAVASCRIPT',
+      'jsx': 'JAVASCRIPT',
+      'ts': 'TYPESCRIPT',
+      'tsx': 'TYPESCRIPT',
+      'py': 'PYTHON',
+      'html': 'HTML',
+      'css': 'CSS',
+      'json': 'JSON',
+      'md': 'MARKDOWN',
+      'yml': 'YAML',
+      'yaml': 'YAML',
+      'sh': 'SHELL',
+      'sql': 'SQL',
+    };
+    return (labelMap[extension] || extension.toUpperCase());
+  };
+
+  const renderPathBreadcrumb = (path: string) => {
+    const parts = path.replace(/^\/+/, '').split('/');
+    return parts.map((part, index) => (
+      <span key={`${part}-${index}`} className="flex items-center text-xs text-gray-400">
+        {index > 0 && <span className="mx-1 text-gray-600">/</span>}
+        <span className={index === parts.length - 1 ? 'text-white font-medium truncate max-w-xs' : 'truncate max-w-xs'} title={part}>
+          {part}
+        </span>
+      </span>
+    ));
+  };
+
   return (
-    <div className="flex h-full bg-gray-900">
+    <div ref={editorContainerRef} className="flex h-full bg-gray-900">
       {/* File Tree Sidebar */}
       {showFileTree && (
-        <div className="w-80 flex-shrink-0">
-          <FileTree
-            files={currentProject?.files || []}
-            selectedFile={selectedFile?.path}
-            onFileSelect={handleFileSelect}
-            onFileCreate={handleFileCreate}
-            onFileDelete={handleFileDelete}
-            onFileRename={handleFileRename}
-            repos={repos}
-            branches={branches}
-            selectedRepo={selectedRepo}
-            selectedBranch={selectedBranch}
-            repoError={repoError}
-            branchError={branchError}
-            reposLoading={reposLoading}
-            branchesLoading={branchesLoading}
-            onRepoChange={handleRepoChange}
-            onBranchChange={handleBranchChange}
-            onRefreshRepos={fetchRepos}
-          />
-        </div>
+        <>
+          <div
+            className="flex-shrink-0"
+            style={{ width: `${fileTreeWidth}px`, minWidth: MIN_FILETREE_WIDTH, maxWidth: 640 }}
+          >
+            <FileTree
+              files={currentProject?.files || []}
+              selectedFile={selectedFile?.path}
+              onFileSelect={handleFileSelect}
+              onFileCreate={handleFileCreate}
+              onFileDelete={handleFileDelete}
+              onFileRename={handleFileRename}
+              repos={repos}
+              branches={branches}
+              selectedRepo={selectedRepo}
+              selectedBranch={selectedBranch}
+              repoError={repoError}
+              branchError={branchError}
+              reposLoading={reposLoading}
+              branchesLoading={branchesLoading}
+              onRepoChange={handleRepoChange}
+              onBranchChange={handleBranchChange}
+              onRefreshRepos={fetchRepos}
+            />
+          </div>
+          <div
+            onMouseDown={startFileTreeResize}
+            className="relative w-2 bg-gray-800 hover:bg-blue-500/80 transition-colors cursor-col-resize flex-shrink-0"
+            title="Drag to resize file explorer"
+          >
+            <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center">
+              <span className="h-10 w-0.5 rounded bg-gray-600/70" />
+            </span>
+          </div>
+        </>
       )}
 
       {/* Main Editor Area */}
@@ -533,7 +701,7 @@ const CodeEditor: React.FC = () => {
         {/* Editor Header */}
         <div className="border-b border-gray-700 p-2 bg-gray-800">
           <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-4 overflow-hidden">
               <button
                 onClick={() => setShowFileTree(!showFileTree)}
                 className="p-2 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white"
@@ -541,6 +709,16 @@ const CodeEditor: React.FC = () => {
               >
                 <FolderIcon className="h-5 w-5" />
               </button>
+              {selectedFile ? (
+                <div className="flex items-center space-x-2 overflow-hidden">
+                  <DocumentIcon className="h-4 w-4 text-blue-400 flex-shrink-0" />
+                  <div className="flex items-center space-x-1 overflow-hidden">
+                    {renderPathBreadcrumb(selectedFile.path)}
+                  </div>
+                </div>
+              ) : (
+                <span className="text-xs text-gray-500">Select a file to start editing</span>
+              )}
             </div>
             
             <div className="flex items-center space-x-1">
@@ -575,7 +753,7 @@ const CodeEditor: React.FC = () => {
           {/* Main Editor and Chat Area */}
           <div className={`flex transition-all duration-300 ${showTerminal ? `flex-1` : 'h-full'}`}>
             {/* Code Editor Area */}
-            <div className={`${showChat ? 'flex-1' : 'w-full'} transition-all duration-300`}>
+            <div className={`flex-1 min-w-0 transition-all duration-300`}>
               {selectedFile ? (
                 <Editor
                   height="100%"
@@ -615,34 +793,48 @@ const CodeEditor: React.FC = () => {
 
             {/* Chat Panel */}
             {showChat && (
-              <div className="w-80 min-w-80 max-w-96 border-l border-gray-700 bg-gray-900 flex flex-col transition-all duration-300 ease-in-out">
-                {/* Chat Header */}
-                <div className="flex items-center justify-between p-3 border-b border-gray-700 bg-gray-800">
-                  <h3 className="text-sm font-semibold text-white flex items-center">
-                    <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
-                    AI Assistant
-                  </h3>
-                  <button
-                    onClick={() => setShowChat(false)}
-                    className="p-1 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white transition-colors"
-                    title="Close Chat"
-                  >
-                    <XMarkIcon className="h-4 w-4" />
-                  </button>
+              <>
+                <div
+                  onMouseDown={startChatResize}
+                  className="relative w-2 bg-gray-800 hover:bg-blue-500/80 transition-colors cursor-col-resize flex-shrink-0"
+                  title="Drag to resize chat"
+                >
+                  <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center">
+                    <span className="h-10 w-0.5 rounded bg-gray-600/70" />
+                  </span>
                 </div>
-                
-                {/* Chat Content */}
-                <div className="flex-1 overflow-hidden">
-                  <SidebarChat 
-                    currentFile={selectedFile ? {
-                      name: selectedFile.name,
-                      path: selectedFile.path,
-                      content: editorContent,
-                      language: getLanguageFromPath(selectedFile.path)
-                    } : undefined}
-                  />
+                <div
+                  className="border-l border-gray-700 bg-gray-900 flex flex-col transition-all duration-300 ease-in-out"
+                  style={{ width: `${chatWidth}px`, minWidth: MIN_CHAT_WIDTH, maxWidth: 560 }}
+                >
+                  {/* Chat Header */}
+                  <div className="flex items-center justify-between p-3 border-b border-gray-700 bg-gray-800">
+                    <h3 className="text-sm font-semibold text-white flex items-center">
+                      <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
+                      AI Assistant
+                    </h3>
+                    <button
+                      onClick={() => setShowChat(false)}
+                      className="p-1 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white transition-colors"
+                      title="Close Chat"
+                    >
+                      <XMarkIcon className="h-4 w-4" />
+                    </button>
+                  </div>
+                  
+                  {/* Chat Content */}
+                  <div className="flex-1 overflow-hidden">
+                    <SidebarChat 
+                      currentFile={selectedFile ? {
+                        name: selectedFile.name,
+                        path: selectedFile.path,
+                        content: editorContent,
+                        language: getLanguageFromPath(selectedFile.path)
+                      } : undefined}
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
           </div>
 
@@ -690,6 +882,53 @@ const CodeEditor: React.FC = () => {
               </div>
             </>
           )}
+        </div>
+
+        {/* Status Bar */}
+        <div className="h-9 bg-gray-900 border-t border-gray-800 px-4 flex items-center justify-between text-xs text-gray-300">
+          <div className="flex items-center space-x-2 overflow-hidden">
+            <DocumentIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+            {selectedFile ? (
+              <div className="flex items-center space-x-1 overflow-hidden">
+                <span className="text-gray-200 font-medium truncate" title={selectedFile.name}>{selectedFile.name}</span>
+                <span className="text-gray-600">•</span>
+                <span className="truncate text-gray-400" title={selectedFile.path.replace(/^\/+/, '')}>
+                  {selectedFile.path.replace(/^\/+/, '')}
+                </span>
+              </div>
+            ) : (
+              <span className="text-gray-500">No file selected</span>
+            )}
+          </div>
+
+          <div className="flex items-center space-x-2 text-gray-400">
+            <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase ${
+              syncState === 'success' ? 'bg-green-600/20 text-green-400 border border-green-500/40' :
+              syncState === 'error' ? 'bg-red-600/20 text-red-400 border border-red-500/40' :
+              syncState === 'syncing' ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 animate-pulse' :
+              'bg-gray-700/40 text-gray-300 border border-gray-600/40'
+            }`}>Workspace</span>
+            <span className="truncate max-w-xs" title={syncMessage}>{syncMessage}</span>
+          </div>
+
+          <div className="flex items-center space-x-4 text-gray-400">
+            {currentProject?.githubRepo && (
+              <div className="flex items-center space-x-1" title={`${currentProject.githubRepo}${currentProject.githubBranch ? `:${currentProject.githubBranch}` : ''}`}>
+                <svg className="h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.483 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.004.071 1.532 1.032 1.532 1.032.892 1.529 2.341 1.087 2.91.832.091-.647.35-1.087.636-1.337-2.22-.252-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.447-1.27.098-2.646 0 0 .84-.269 2.75 1.025A9.56 9.56 0 0 1 12 6.844a9.56 9.56 0 0 1 2.504.337c1.909-1.294 2.748-1.025 2.748-1.025.546 1.376.202 2.393.099 2.646.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.31.678.921.678 1.857 0 1.34-.012 2.421-.012 2.75 0 .268.18.58.688.482A10.003 10.003 0 0 0 22 12c0-5.523-4.477-10-10-10Z" clipRule="evenodd" />
+                </svg>
+                <span className="truncate max-w-xs">{currentProject.githubRepo}</span>
+                {currentProject.githubBranch && (
+                  <span className="text-gray-500">[{currentProject.githubBranch}]</span>
+                )}
+              </div>
+            )}
+            {selectedFile && (
+              <span className="uppercase tracking-wide text-[10px]" title={getLanguageFromPath(selectedFile.path)}>
+                {getLanguageLabel(selectedFile.path)}
+              </span>
+            )}
+          </div>
         </div>
       </div>
     </div>

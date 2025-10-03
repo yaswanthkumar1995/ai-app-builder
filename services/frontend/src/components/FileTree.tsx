@@ -177,31 +177,6 @@ const FileTree: React.FC<FileTreeProps> = ({
             )}
           </div>
 
-          {/* Context menu for file operations */}
-          <div className="opacity-0 group-hover:opacity-100 flex items-center space-x-1 ml-2">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onFileCreate(node.path, 'new-file', 'file');
-              }}
-              className="p-1 hover:bg-gray-600 rounded text-gray-400 hover:text-white"
-              title="New file"
-            >
-              <PlusIcon className="h-3 w-3" />
-            </button>
-            {node.type === 'folder' && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onFileCreate(node.path, 'new-folder', 'folder');
-                }}
-                className="p-1 hover:bg-gray-600 rounded text-gray-400 hover:text-white"
-                title="New folder"
-              >
-                <FolderIcon className="h-3 w-3" />
-              </button>
-            )}
-          </div>
         </div>
 
         {node.type === 'folder' && isExpanded && node.children && (
