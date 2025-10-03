@@ -1090,9 +1090,20 @@ app.get('/github/status', async (req, res) => {
 app.get('/auth/github/repos', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    if (!authHeader?.startsWith('Bearer ')) {
+      logger.error('List repos error: No authorization header');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
     const jwtToken = authHeader.substring(7);
     const decoded = jwt.verify(jwtToken, process.env.JWT_SECRET || 'default-secret') as any;
+    
+    if (!decoded || !decoded.id) {
+      logger.error('List repos error: Unauthorized - No user ID', { decoded });
+      return res.status(401).json({ error: 'Unauthorized - No user ID' });
+    }
+
+    logger.info('Fetching repos for user', { userId: decoded.id, email: decoded.email });
 
     // Fetch provider settings to get token
     const settingsResp = await axios.get(`${process.env.DATABASE_SERVICE_URL || 'http://database-service:3003'}/settings/providers`, {
@@ -1103,7 +1114,12 @@ app.get('/auth/github/repos', async (req, res) => {
     const appType = githubSettings.app_type || 'oauth_app';
     const installationId = githubSettings.installation_id;
 
-    if (!githubToken) return res.status(400).json({ error: 'GitHub not connected' });
+    logger.info('GitHub settings retrieved', { hasToken: !!githubToken, appType, githubSettings });
+
+    if (!githubToken) {
+      logger.error('List repos error: GitHub not connected');
+      return res.status(400).json({ error: 'GitHub not connected' });
+    }
 
     let repos = [];
     

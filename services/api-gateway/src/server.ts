@@ -55,7 +55,7 @@ app.use('/api/auth', (req, res, next) => {
   target: process.env.AUTH_SERVICE_URL || 'http://auth-service:3001',
   changeOrigin: true,
   pathRewrite: {
-    '^/api/auth': ''
+    '^/api': ''
   },
   onProxyReq: (proxyReq, req, res) => {
     console.log('Proxying request to:', proxyReq.getHeader('host'), proxyReq.path);

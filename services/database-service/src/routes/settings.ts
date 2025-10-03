@@ -14,12 +14,20 @@ interface AuthRequest extends express.Request {
 // Get provider settings for user
 router.get('/providers', async (req: AuthRequest, res) => {
   try {
-    // First check if user is authenticated
-    if (!req.user?.id) {
+    // First check if user is authenticated (JWT or x-user-id header)
+    let userId: string | undefined = req.user?.id;
+    if (!userId) {
+      const headerUser = req.headers['x-user-id'];
+      if (typeof headerUser === 'string' && headerUser.trim().length > 0) {
+        userId = headerUser.trim();
+        console.log('🔐 Using x-user-id header for GET /providers:', userId);
+      }
+    }
+    
+    if (!userId) {
       return res.status(401).json({ error: 'Unauthorized - No user ID' });
     }
 
-    const userId = req.user.id;
     console.log('Fetching settings for user ID:', userId);
 
         // Get provider settings with new schema

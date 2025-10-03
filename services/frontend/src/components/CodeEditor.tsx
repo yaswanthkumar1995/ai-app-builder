@@ -443,6 +443,17 @@ const CodeEditor: React.FC = () => {
             onFileCreate={handleFileCreate}
             onFileDelete={handleFileDelete}
             onFileRename={handleFileRename}
+            repos={repos}
+            branches={branches}
+            selectedRepo={selectedRepo}
+            selectedBranch={selectedBranch}
+            repoError={repoError}
+            branchError={branchError}
+            reposLoading={reposLoading}
+            branchesLoading={branchesLoading}
+            onRepoChange={handleRepoChange}
+            onBranchChange={handleBranchChange}
+            onRefreshRepos={fetchRepos}
           />
         </div>
       )}
@@ -460,78 +471,6 @@ const CodeEditor: React.FC = () => {
               >
                 <FolderIcon className="h-5 w-5" />
               </button>
-              <div className="flex items-center space-x-2">
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-400 mb-1">Repository</span>
-                  <select
-                    className="bg-gray-700 text-sm text-white rounded px-2 py-1 focus:outline-none border border-gray-600"
-                    value={selectedRepo}
-                    onChange={(e) => handleRepoChange(e.target.value)}
-                    disabled={reposLoading}
-                  >
-                    <option value="">{reposLoading ? 'Loading repositories…' : 'Select repository'}</option>
-                    {repos.map((r) => (
-                      <option key={r.id} value={r.fullName}>
-                        {r.name}
-                      </option>
-                    ))}
-                  </select>
-                  {repoError && (
-                    <span className="text-[10px] text-red-400 mt-1 max-w-[200px]">{repoError}</span>
-                  )}
-                </div>
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-400 mb-1">Branch</span>
-                  <select
-                    className="bg-gray-700 text-sm text-white rounded px-2 py-1 focus:outline-none border border-gray-600"
-                    value={selectedBranch}
-                    onChange={(e) => handleBranchChange(e.target.value)}
-                    disabled={!selectedRepo || branchesLoading}
-                  >
-                    <option value="">
-                      {!selectedRepo
-                        ? 'Select repo first'
-                        : branchesLoading
-                          ? 'Loading branches…'
-                          : branches.length
-                            ? 'Select branch'
-                            : branchError || 'No branches found'}
-                    </option>
-                    {branches.map((b) => (
-                      <option key={b} value={b}>
-                        {b}
-                      </option>
-                    ))}
-                  </select>
-                  {branchError && selectedRepo && !branchesLoading && (
-                    <span className="text-[10px] text-red-400 mt-1 max-w-[200px]">{branchError}</span>
-                  )}
-                </div>
-                <button
-                  onClick={() => fetchRepos()}
-                  disabled={reposLoading}
-                  className="p-2 text-gray-300 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Refresh repositories"
-                >
-                  <ArrowPathIcon className="h-4 w-4" />
-                </button>
-                <div className="flex flex-col">
-                  <span className="text-xs text-gray-400 mb-1">Workspace</span>
-                  <div
-                    className={`min-w-[200px] text-xs px-2 py-1 rounded border ${
-                      syncState === 'success'
-                        ? 'bg-green-600/20 border-green-500/40 text-green-200'
-                        : syncState === 'error'
-                          ? 'bg-red-600/20 border-red-500/40 text-red-200'
-                          : syncState === 'syncing'
-                            ? 'bg-blue-600/20 border-blue-500/40 text-blue-200 animate-pulse'
-                            : 'bg-gray-700 border-gray-600 text-gray-300'
-                    }`}
-                  >
-                    {syncingRepo || syncState === 'syncing' ? 'Syncing workspace…' : syncMessage}
-                  </div>
-                </div>
-              </div>
             </div>
             
             <div className="flex items-center space-x-1">

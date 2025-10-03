@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon } from '@heroicons/react/24/outline';
+import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
 
 interface FileNode {
   id: string;
@@ -18,6 +18,18 @@ interface FileTreeProps {
   onFileCreate: (parentPath: string, name: string, type: 'file' | 'folder') => void;
   onFileDelete: (filePath: string) => void;
   onFileRename: (filePath: string, newName: string) => void;
+  // Repository/Branch props
+  repos?: any[];
+  branches?: string[];
+  selectedRepo?: string;
+  selectedBranch?: string;
+  repoError?: string | null;
+  branchError?: string | null;
+  reposLoading?: boolean;
+  branchesLoading?: boolean;
+  onRepoChange?: (repo: string) => void;
+  onBranchChange?: (branch: string) => void;
+  onRefreshRepos?: () => void;
 }
 
 const FileTree: React.FC<FileTreeProps> = ({
@@ -27,6 +39,17 @@ const FileTree: React.FC<FileTreeProps> = ({
   onFileCreate,
   onFileDelete,
   onFileRename,
+  repos = [],
+  branches = [],
+  selectedRepo = '',
+  selectedBranch = '',
+  repoError = null,
+  branchError = null,
+  reposLoading = false,
+  branchesLoading = false,
+  onRepoChange,
+  onBranchChange,
+  onRefreshRepos,
 }) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/']));
   const [editingFile, setEditingFile] = useState<string | null>(null);
@@ -168,11 +191,20 @@ const FileTree: React.FC<FileTreeProps> = ({
   };
 
   return (
-    <div className="h-full bg-gray-800 border-r border-gray-700">
+    <div className="h-full bg-gray-800 border-r border-gray-700 flex flex-col">
       <div className="p-3 border-b border-gray-700">
-        <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-medium text-white">Project Files</h3>
+        <div className="flex items-center justify-between mb-3">
           <div className="flex space-x-1">
+            {onRefreshRepos && (
+              <button
+                onClick={onRefreshRepos}
+                disabled={reposLoading}
+                className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Refresh repositories"
+              >
+                <ArrowPathIcon className="h-4 w-4" />
+              </button>
+            )}
             <button
               onClick={() => onFileCreate('/', 'new-file', 'file')}
               className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
@@ -188,6 +220,58 @@ const FileTree: React.FC<FileTreeProps> = ({
               <FolderIcon className="h-4 w-4" />
             </button>
           </div>
+        </div>
+
+        {/* Repository and Branch side by side */}
+        <div className="space-y-2">
+          <div className="flex gap-2">
+            {/* Repository */}
+            <div className="flex flex-col flex-1">
+              <select
+                className="bg-gray-700 text-sm text-white rounded px-2 py-1.5 focus:outline-none border border-gray-600 w-full"
+                value={selectedRepo}
+                onChange={(e) => onRepoChange?.(e.target.value)}
+                disabled={reposLoading}
+              >
+                <option value="">{reposLoading ? 'Loading…' : 'Repository'}</option>
+                {repos.map((r) => (
+                  <option key={r.id} value={r.fullName}>
+                    {r.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Branch */}
+            <div className="flex flex-col flex-1">
+              <select
+                className="bg-gray-700 text-sm text-white rounded px-2 py-1.5 focus:outline-none border border-gray-600 w-full"
+                value={selectedBranch}
+                onChange={(e) => onBranchChange?.(e.target.value)}
+                disabled={!selectedRepo || branchesLoading}
+              >
+                <option value="">
+                  {branchesLoading
+                    ? 'Loading…'
+                    : branches.length
+                      ? 'Branch'
+                      : branchError || 'No branches'}
+                </option>
+                {branches.map((b) => (
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          
+          {/* Error messages */}
+          {(repoError || branchError) && (
+            <div className="text-[10px] text-red-400">
+              {repoError || branchError}
+            </div>
+          )}
         </div>
       </div>
       
