@@ -3,8 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
-import ProjectDashboard from './components/ProjectDashboard';
-import ProjectManager from './components/ProjectManager';
+// Removed ProjectDashboard & ProjectManager
 import CodeEditor from './components/CodeEditor';
 import Settings from './components/Settings';
 import AuthGuard from './components/AuthGuard';
@@ -44,8 +43,7 @@ function App() {
                     <main className="flex-1 overflow-auto">
                       <ErrorBoundary>
                         <Routes>
-                          <Route path="/" element={<ProjectDashboard />} />
-                          <Route path="/projects" element={<ProjectManager />} />
+                          <Route path="/" element={<CodeEditor />} />
                           <Route path="/editor" element={<CodeEditor />} />
                           <Route path="/settings" element={<Settings />} />
                         </Routes>

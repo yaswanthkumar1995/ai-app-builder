@@ -122,13 +122,6 @@ app.use('/api/projects', createProxyMiddleware({
   pathRewrite: { '^/api/projects': '/projects' }
 }));
 
-// GitHub integration routes
-app.use('/api/github', createProxyMiddleware({
-  target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
-  changeOrigin: true,
-  pathRewrite: { '^/api/github': '/github' }
-}));
-
 // Terminal session routes
 app.use('/api/terminal-sessions', createProxyMiddleware({
   target: process.env.DATABASE_SERVICE_URL || 'http://database-service:3003',
@@ -142,7 +135,28 @@ app.use('/api/terminal-sessions', createProxyMiddleware({
 app.use('/api/terminal', createProxyMiddleware({
   target: 'http://terminal-service:3004',
   changeOrigin: true,
-  pathRewrite: { '^/api/terminal': '/api/terminal' }
+  pathRewrite: { '^/api/terminal': '/terminal' }
+}));
+
+// Git operations integrated with terminal service
+app.use('/api/git', createProxyMiddleware({
+  target: 'http://terminal-service:3004',
+  changeOrigin: true,
+  pathRewrite: { '^/api/git': '/git' }
+}));
+
+// Workspace state management
+app.use('/api/workspace', createProxyMiddleware({
+  target: 'http://terminal-service:3004',
+  changeOrigin: true,
+  pathRewrite: { '^/api/workspace': '/workspace' }
+}));
+
+// AI-driven git operations
+app.use('/api/ai/git', createProxyMiddleware({
+  target: process.env.AI_SERVICE_URL || 'http://ai-service:8001',
+  changeOrigin: true,
+  pathRewrite: { '^/api/ai/git': '/git' }
 }));
 
 // Direct settings route implementation (bypasses problematic proxy)

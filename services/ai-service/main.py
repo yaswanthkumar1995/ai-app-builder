@@ -13,6 +13,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 import aiohttp
 from bs4 import BeautifulSoup
+import re
 
 app = FastAPI(title="AI Code Platform - AI Service", version="1.0.0")
 
@@ -425,6 +426,171 @@ async def get_code_examples(query: str = "", language: str = "", req: Request = 
     except Exception as e:
         print(f"Error fetching code examples: {e}")
         return {"examples": []}
+
+class GitOperationRequest(BaseModel):
+    operation: str  # 'clone', 'checkout', 'status', 'commit', 'push'
+    repoUrl: Optional[str] = None
+    branch: Optional[str] = None
+    message: Optional[str] = None
+    files: Optional[List[str]] = None
+    projectName: Optional[str] = None
+    create: Optional[bool] = False
+
+def detect_git_operations(message: str) -> List[GitOperationRequest]:
+    """Detect git operations from user message"""
+    operations = []
+    message_lower = message.lower()
+    
+    # Clone detection
+    clone_patterns = [
+        r'clone\s+(.+?)(?:\s+|$)',
+        r'git\s+clone\s+(.+?)(?:\s+|$)',
+        r'pull\s+down\s+(.+?)(?:\s+|$)'
+    ]
+    for pattern in clone_patterns:
+        match = re.search(pattern, message_lower)
+        if match:
+            repo_url = match.group(1).strip()
+            operations.append(GitOperationRequest(
+                operation='clone',
+                repoUrl=repo_url,
+                branch='main'  # default branch
+            ))
+    
+    # Branch checkout detection
+    checkout_patterns = [
+        r'checkout\s+(?:branch\s+)?(.+?)(?:\s+|$)',
+        r'switch\s+to\s+(?:branch\s+)?(.+?)(?:\s+|$)',
+        r'git\s+checkout\s+(.+?)(?:\s+|$)'
+    ]
+    for pattern in checkout_patterns:
+        match = re.search(pattern, message_lower)
+        if match:
+            branch_name = match.group(1).strip()
+            create_branch = 'create' in message_lower or 'new' in message_lower
+            operations.append(GitOperationRequest(
+                operation='checkout',
+                branch=branch_name,
+                create=create_branch
+            ))
+    
+    # Commit detection
+    commit_patterns = [
+        r'commit\s+(?:with message\s+)?["\'](.+?)["\']',
+        r'git\s+commit\s+-m\s+["\'](.+?)["\']',
+        r'save changes\s+(?:with message\s+)?["\'](.+?)["\']'
+    ]
+    for pattern in commit_patterns:
+        match = re.search(pattern, message_lower)
+        if match:
+            commit_message = match.group(1).strip()
+            operations.append(GitOperationRequest(
+                operation='commit',
+                message=commit_message
+            ))
+    
+    # Push detection
+    if any(word in message_lower for word in ['push', 'upload', 'sync changes']):
+        operations.append(GitOperationRequest(operation='push'))
+    
+    # Status detection
+    if any(word in message_lower for word in ['status', 'what changed', 'changes']):
+        operations.append(GitOperationRequest(operation='status'))
+    
+    return operations
+
+async def execute_git_operation(operation: GitOperationRequest, user_id: str) -> Dict[str, Any]:
+    """Execute git operation via terminal service"""
+    try:
+        async with httpx.AsyncClient() as client:
+            if operation.operation == 'clone':
+                response = await client.post(
+                    f"http://terminal-service:3004/git/clone",
+                    json={
+                        'repoUrl': operation.repoUrl,
+                        'branch': operation.branch,
+                        'userId': user_id,
+                        'projectName': operation.projectName
+                    }
+                )
+            elif operation.operation == 'checkout':
+                response = await client.post(
+                    f"http://terminal-service:3004/git/checkout",
+                    json={
+                        'branch': operation.branch,
+                        'userId': user_id,
+                        'create': operation.create
+                    }
+                )
+            elif operation.operation == 'status':
+                response = await client.get(
+                    f"http://terminal-service:3004/git/status/{user_id}"
+                )
+            elif operation.operation == 'commit':
+                response = await client.post(
+                    f"http://terminal-service:3004/git/commit",
+                    json={
+                        'userId': user_id,
+                        'message': operation.message,
+                        'files': operation.files
+                    }
+                )
+            elif operation.operation == 'push':
+                response = await client.post(
+                    f"http://terminal-service:3004/git/push",
+                    json={
+                        'userId': user_id,
+                        'branch': operation.branch
+                    }
+                )
+            else:
+                return {'success': False, 'error': f'Unknown git operation: {operation.operation}'}
+            
+            if response.status_code == 200:
+                return response.json()
+            else:
+                error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {'error': response.text}
+                return {'success': False, 'error': error_data.get('error', 'Git operation failed')}
+    
+    except Exception as e:
+        return {'success': False, 'error': str(e)}
+
+@app.post("/git/execute")
+async def execute_git_operations(request: ChatRequest, req: Request):
+    """Execute git operations detected from chat message"""
+    user_id = req.headers.get("x-user-id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="User not authenticated")
+    
+    # Get the last user message
+    user_message = None
+    for msg in reversed(request.messages):
+        if msg.role == 'user':
+            user_message = msg.content
+            break
+    
+    if not user_message:
+        raise HTTPException(status_code=400, detail="No user message found")
+    
+    # Detect git operations
+    operations = detect_git_operations(user_message)
+    
+    if not operations:
+        return {'operations': [], 'message': 'No git operations detected'}
+    
+    # Execute operations
+    results = []
+    for operation in operations:
+        result = await execute_git_operation(operation, user_id)
+        results.append({
+            'operation': operation.operation,
+            'result': result
+        })
+    
+    return {
+        'operations': len(operations),
+        'results': results
+    }
 
 if __name__ == "__main__":
     import uvicorn

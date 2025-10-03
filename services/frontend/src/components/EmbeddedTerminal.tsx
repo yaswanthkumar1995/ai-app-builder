@@ -35,9 +35,10 @@ const EmbeddedTerminal: React.FC = () => {
     return () => {
       if (socketRef.current) {
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
     };
-  }, [currentProject]);
+  }, [currentProject?.id]);
 
   useEffect(() => {
     if (terminalRef.current) {
@@ -55,7 +56,9 @@ const EmbeddedTerminal: React.FC = () => {
   const initializeTerminal = async () => {
     if (!user) return;
 
-    console.log('Initializing terminal for user:', user.id);
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Initializing terminal for user:', user.id);
+    }
     setLoading(true);
     setConnecting(true);
     
@@ -64,8 +67,12 @@ const EmbeddedTerminal: React.FC = () => {
   };
 
   const connectToSocket = () => {
-    console.log('Connecting to terminal WebSocket...');
-    const socket = io(`http://localhost:3004`, {
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Connecting to terminal WebSocket...');
+    }
+    // Use the WebSocket URL from config, converting ws:// to http:// for socket.io
+    const socketUrl = config.wsUrl.replace(/^ws(s?):/, 'http$1:').replace(':8000', ':3004');
+    const socket = io(socketUrl, {
       auth: {
         token,
         userId: user?.id
@@ -73,7 +80,9 @@ const EmbeddedTerminal: React.FC = () => {
     });
 
     socket.on('connect', () => {
-      console.log('Terminal WebSocket connected');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Terminal WebSocket connected');
+      }
       setConnecting(false);
       setLoading(false);
       
@@ -87,7 +96,9 @@ const EmbeddedTerminal: React.FC = () => {
     });
 
     socket.on('terminal-created', (data: any) => {
-      console.log('Terminal session created via WebSocket:', data);
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Terminal session created via WebSocket:', data);
+      }
       setActiveSession({
         id: data.sessionId,
         userId: user?.id || '',
@@ -106,14 +117,18 @@ const EmbeddedTerminal: React.FC = () => {
       try {
         if (data.data) {
           let rawOutput = data.data;
-          console.log('Raw terminal output:', JSON.stringify(rawOutput));
+          if (process.env.NODE_ENV === 'development') {
+            console.log('Raw terminal output:', JSON.stringify(rawOutput));
+          }
           
           // Process ANSI escape sequences properly
           let processedOutput = rawOutput;
           
           // Handle clear screen sequences - MUST clear the entire terminal
           if (processedOutput.includes('\u001b[2J') || processedOutput.includes('\u001b[H\u001b[2J')) {
-            console.log('🧹 CLEAR SCREEN DETECTED - Clearing terminal');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🧹 CLEAR SCREEN DETECTED - Clearing terminal');
+            }
             setOutput(''); // Clear everything
             
             // Find content after the clear sequence
@@ -134,7 +149,9 @@ const EmbeddedTerminal: React.FC = () => {
           
           // Handle form feed (Ctrl+L) - also clears screen
           if (processedOutput.includes('\x0c') || processedOutput.includes('\f')) {
-            console.log('🧹 FORM FEED DETECTED - Clearing terminal');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('🧹 FORM FEED DETECTED - Clearing terminal');
+            }
             setOutput('');
             
             // Get content after form feed
@@ -189,7 +206,9 @@ const EmbeddedTerminal: React.FC = () => {
     });
 
     socket.on('disconnect', () => {
-      console.log('Terminal disconnected');
+      if (process.env.NODE_ENV === 'development') {
+        console.log('Terminal disconnected');
+      }
       setConnecting(true);
     });
 

@@ -139,7 +139,7 @@ Thumbs.db
 
 # Docker
 .dockerignore
-docker-compose.override.yml
+nerdctl compose.override.yml
 
 # Kubernetes
 *.kubeconfig

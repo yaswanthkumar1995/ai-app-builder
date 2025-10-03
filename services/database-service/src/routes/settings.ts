@@ -37,6 +37,9 @@ router.get('/providers', async (req: AuthRequest, res) => {
           googleEnabled: providerSettings.googleEnabled,
           githubToken: providerSettings.githubToken,
           githubEnabled: providerSettings.githubEnabled,
+          githubInstallationId: providerSettings.githubInstallationId,
+          githubAppType: providerSettings.githubAppType,
+          githubSetupAction: providerSettings.githubSetupAction,
           ollamaBaseUrl: providerSettings.ollamaBaseUrl,
           ollamaEnabled: providerSettings.ollamaEnabled,
           ollamaCustomUrl: providerSettings.ollamaCustomUrl,
@@ -69,7 +72,7 @@ router.get('/providers', async (req: AuthRequest, res) => {
       openai: { apiKey: '', enabled: false },
       anthropic: { apiKey: '', enabled: false },
       google: { apiKey: '', enabled: false },
-      github: { apiKey: '', enabled: false },
+  github: { apiKey: '', enabled: false, installation_id: '', app_type: '', setup_action: '' },
       ollama: { baseUrl: '', enabled: true, customUrl: false },
       preferences: {
         darkMode: false,
@@ -108,6 +111,9 @@ router.get('/providers', async (req: AuthRequest, res) => {
       formattedSettings.github = {
         apiKey: setting.githubToken || '',
         enabled: setting.githubEnabled || false,
+        installation_id: setting.githubInstallationId || '',
+        app_type: setting.githubAppType || '',
+        setup_action: setting.githubSetupAction || '',
       };
       
       formattedSettings.ollama = {
@@ -159,12 +165,20 @@ router.post('/providers', async (req: AuthRequest, res) => {
   console.log('🚀 Request body:', JSON.stringify(req.body, null, 2));
 
   try {
-    if (!req.user?.id) {
-      console.log('❌ No user ID found');
+    let effectiveUserId: string | undefined = req.user?.id;
+    if (!effectiveUserId) {
+      const headerUser = req.headers['x-user-id'];
+      if (typeof headerUser === 'string' && headerUser.trim().length > 0) {
+        effectiveUserId = headerUser.trim();
+        console.log('🔐 Using x-user-id header as fallback for internal call:', effectiveUserId);
+      }
+    }
+    if (!effectiveUserId) {
+      console.log('❌ No user ID found (neither JWT nor x-user-id)');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const userId = req.user.id;
+    const userId = effectiveUserId;
     console.log('✅ Processing settings save for user:', userId);
 
     // Get existing settings for this user
@@ -203,10 +217,19 @@ router.post('/providers', async (req: AuthRequest, res) => {
     }
 
     if (req.body.github) {
-      updateData.githubToken = req.body.github.apiKey || '';
-      updateData.githubEnabled = req.body.github.enabled || false;
+      const githubBody = req.body.github;
+      updateData.githubEnabled = githubBody.enabled || false;
+      updateData.githubToken = githubBody.apiKey || '';
+      updateData.githubInstallationId = githubBody.installation_id || null;
+      updateData.githubAppType = githubBody.app_type || null;
+      updateData.githubSetupAction = githubBody.setup_action || null;
       console.log('🔧 Setting GitHub:', updateData.githubEnabled ? 'enabled' : 'disabled');
-      console.log('🔍 GitHub token length:', updateData.githubToken.length, 'characters');
+      console.log('🔍 GitHub metadata set:', {
+        hasToken: !!updateData.githubToken,
+        installationId: updateData.githubInstallationId,
+        appType: updateData.githubAppType,
+        setupAction: updateData.githubSetupAction,
+      });
     }
 
     if (req.body.ollama) {

@@ -228,12 +228,17 @@ Context: ${chatSettings.includeContext ? 'Working on a project with the followin
       };
 
       // Process file changes from AI response
-      if (data.files && data.files.length > 0) {
+      if (data.files && data.files.length > 0 && currentProject) {
         data.files.forEach((file: FileAction) => {
-          if (file.type === 'create') {
-            createFile('/', file.path, 'file', file.content);
-          } else if (file.type === 'update') {
-            updateFile(file.path, file.content || '');
+          try {
+            if (file.type === 'create') {
+              createFile('/', file.path, 'file', file.content);
+            } else if (file.type === 'update') {
+              updateFile(file.path, file.content || '');
+            }
+          } catch (error) {
+            console.error(`Failed to process file ${file.path}:`, error);
+            toast.error(`Failed to ${file.type} file: ${file.path}`);
           }
         });
       }

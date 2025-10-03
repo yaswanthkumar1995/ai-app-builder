@@ -12,7 +12,8 @@
     "socket.io": "^4.7.2",
     "cors": "^2.8.5",
     "uuid": "^9.0.0",
-    "node-pty": "^1.0.0"
+    "node-pty": "^1.0.0",
+    "simple-git": "^3.19.1"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

@@ -55,7 +55,7 @@ const FileTree: React.FC<FileTreeProps> = ({
     setEditingName('');
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
+  const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       finishEditing();
     } else if (e.key === 'Escape') {
@@ -105,7 +105,7 @@ const FileTree: React.FC<FileTreeProps> = ({
                 value={editingName}
                 onChange={(e) => setEditingName(e.target.value)}
                 onBlur={finishEditing}
-                onKeyPress={handleKeyPress}
+                onKeyDown={handleKeyDown}
                 className="flex-1 bg-gray-800 text-white text-sm px-1 py-0.5 rounded border border-blue-500 focus:outline-none"
                 autoFocus
               />

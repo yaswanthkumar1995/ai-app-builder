@@ -14,9 +14,7 @@ const Sidebar: React.FC = () => {
   const [isOpen, setIsOpen] = useState(true);
 
   const menuItems = [
-    { path: '/dashboard/', label: 'Dashboard', icon: HomeIcon },
-    { path: '/dashboard/projects', label: 'Projects', icon: FolderIcon },
-    { path: '/dashboard/editor', label: 'Code Editor', icon: CodeBracketIcon },
+    { path: '/dashboard/editor', label: 'Workspace', icon: CodeBracketIcon },
     { path: '/dashboard/settings', label: 'Settings', icon: CogIcon },
   ];
 

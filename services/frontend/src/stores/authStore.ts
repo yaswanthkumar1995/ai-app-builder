@@ -116,8 +116,13 @@ export const useAuthStore = create<AuthState>()(
 
           if (response.ok) {
             const data = await response.json();
+            if (!data.token) {
+              throw new Error('No token received from refresh');
+            }
             set({ token: data.token });
-            console.log('✅ Token refreshed successfully');
+            if (process.env.NODE_ENV === 'development') {
+              console.log('✅ Token refreshed successfully');
+            }
             return data.token;
           } else {
             const errorData = await response.json().catch(() => ({}));

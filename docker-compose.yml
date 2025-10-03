@@ -47,8 +47,16 @@ services:
       - CORS_ORIGIN=http://localhost:3000
       - LOG_LEVEL=info
       - NODE_ENV=development
+      - FRONTEND_URL=http://localhost:3000
+      - DATABASE_SERVICE_URL=http://database-service:3003
+      - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
+      - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
+      - GITHUB_APP_NAME=${GITHUB_APP_NAME}
+      - GITHUB_APP_ID=${GITHUB_APP_ID}
+      - GITHUB_PRIVATE_KEY=${GITHUB_PRIVATE_KEY}
     depends_on:
       - mysql
+      - database-service
 
   # AI/Inference Service
   ai-service:
@@ -124,15 +132,17 @@ services:
 
 
 
-  # Terminal Service - Simple command execution
+  # Terminal Service - Simple command execution with Git integration
   terminal-service:
     build: ./services/terminal-service
     ports:
       - "3004:3004"
     volumes:
       - user_workspaces:/workspaces
+      - ~/.ssh:/root/.ssh:ro  # For Git SSH keys if needed
     environment:
       - NODE_ENV=development
+      - GIT_CONFIG_GLOBAL=/tmp/.gitconfig
     depends_on:
       - database-service
 
