@@ -81,7 +81,8 @@ const EmbeddedTerminal: React.FC = () => {
       socket.emit('create-terminal', {
         userId: user?.id,
         projectId: currentProject?.id,
-        userEmail: user?.email
+        userEmail: user?.email,
+        workspacePath: currentProject?.workspacePath
       });
     });
 

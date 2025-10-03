@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { buildFileTree, flattenFileTree } from '../utils/fileUtils';
 
 export interface FileNode {
   id: string;
@@ -22,6 +23,7 @@ export interface Project {
   githubRepo?: string;
   githubBranch?: string;
   isGithubProject?: boolean;
+  workspacePath?: string;
 }
 
 interface ProjectState {
@@ -31,7 +33,7 @@ interface ProjectState {
   isLoading: boolean;
   
   // Actions
-  createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[] }) => void;
+  createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[]; workspacePath?: string }) => void;
   loadProject: (projectId: string) => void;
   saveProject: () => void;
   deleteProject: (projectId: string) => void;
@@ -49,6 +51,7 @@ interface ProjectState {
   getProjectStructure: () => string;
   exportProject: () => string;
   importProject: (projectData: string) => void;
+  restructureCurrentProject: () => void;
 }
 
 const defaultProject: Project = {
@@ -133,22 +136,29 @@ root.render(<App />);`,
 export const useProjectStore = create<ProjectState>()(
   persist(
     (set, get) => ({
-      currentProject: defaultProject,
-      projects: [defaultProject],
+      currentProject: null,
+      projects: [],
       selectedFile: null,
       isLoading: false,
 
-      createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[] }) => {
+      createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[]; workspacePath?: string }) => {
+        // If we have files from GitHub, build proper tree structure
+        let files: FileNode[] = [];
+        if (githubData?.files && githubData.files.length > 0) {
+          files = buildFileTree(githubData.files);
+        }
+
         const newProject: Project = {
           id: Date.now().toString(),
           name,
           description,
-          files: githubData?.files || [],
+          files,
           createdAt: new Date(),
           updatedAt: new Date(),
           githubRepo: githubData?.repo,
           githubBranch: githubData?.branch,
           isGithubProject: !!githubData,
+          workspacePath: githubData?.workspacePath,
         };
 
         set((state) => ({
@@ -194,6 +204,35 @@ export const useProjectStore = create<ProjectState>()(
 
       selectFile: (file: FileNode) => {
         set({ selectedFile: file });
+      },
+
+      // Convert flat file structure to hierarchical structure for existing projects
+      restructureCurrentProject: () => {
+        const { currentProject } = get();
+        if (!currentProject) return;
+
+        // Check if already structured (has folders with children)
+        const hasStructuredFolders = currentProject.files.some(
+          file => file.type === 'folder' && file.children && file.children.length > 0
+        );
+
+        if (hasStructuredFolders) return; // Already structured
+
+        // Convert flat structure to hierarchical
+        const structuredFiles = buildFileTree(currentProject.files);
+
+        const updatedProject = {
+          ...currentProject,
+          files: structuredFiles,
+          updatedAt: new Date(),
+        };
+
+        set((state) => ({
+          currentProject: updatedProject,
+          projects: state.projects.map(p => 
+            p.id === updatedProject.id ? updatedProject : p
+          ),
+        }));
       },
 
       createFile: (parentPath: string, name: string, type: 'file' | 'folder', content?: string) => {

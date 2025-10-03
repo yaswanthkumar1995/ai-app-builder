@@ -4,11 +4,10 @@ import { useAuthStore } from '../stores/authStore';
 import { useProjectStore } from '../stores/projectStore';
 import { 
   MagnifyingGlassIcon, 
-  StarIcon, 
   CodeBracketIcon, 
   EyeIcon,
   ClockIcon,
-  DocumentIcon
+  ArrowDownTrayIcon
 } from '@heroicons/react/24/outline';
 import toast from 'react-hot-toast';
 
@@ -114,26 +113,109 @@ const GitHubProjectImporter: React.FC = () => {
     setImportingRepo(repo.fullName);
     
     try {
-      // Create project first
       const projectName = repo.name;
       const projectDescription = repo.description || `Imported from ${repo.fullName}`;
       
-      // Fetch repository structure
-      const files = await fetchRepositoryFiles(repo);
-      
-      // Create project using the store with GitHub data
-      createProject(projectName, projectDescription, {
-        repo: repo.cloneUrl,
-        branch: repo.defaultBranch,
-        files: files
+      // Clone the repository using Server-Sent Events for progress tracking
+      await new Promise<void>((resolve, reject) => {
+        const eventSource = new EventSource(
+          `${config.apiGatewayUrl}/api/github/clone`,
+          {
+            // Note: EventSource doesn't support POST directly, we'll need to use fetch with streaming
+          }
+        );
+
+        // Since EventSource doesn't support POST, we'll use fetch with streaming
+        fetch(`${config.apiGatewayUrl}/api/github/clone`, {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'application/json',
+            'x-user-id': 'user-id-from-token',
+            'Accept': 'text/event-stream',
+          },
+          body: JSON.stringify({
+            repoUrl: repo.cloneUrl,
+            branch: repo.defaultBranch,
+            projectName: projectName,
+            projectDescription: projectDescription,
+          }),
+        }).then(async (response) => {
+          if (!response.ok) {
+            throw new Error('Failed to start clone operation');
+          }
+
+          const reader = response.body?.getReader();
+          if (!reader) {
+            throw new Error('No response stream available');
+          }
+
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split('\n');
+              buffer = lines.pop() || '';
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.slice(6));
+                    console.log('Clone progress:', data);
+
+                    if (data.error) {
+                      toast.error(data.message || 'Clone failed');
+                      reject(new Error(data.message || 'Clone failed'));
+                      return;
+                    }
+
+                    if (data.status === 'completed' && data.success) {
+                      // Create project with the cloned files
+                      createProject(projectName, projectDescription, {
+                        repo: repo.cloneUrl,
+                        branch: repo.defaultBranch,
+                        files: data.files || [],
+                        workspacePath: data.workspacePath
+                      });
+
+                      console.log(`Successfully imported ${data.files?.length || 0} files from ${repo.name}`);
+                      console.log(`Repository cloned to workspace: ${data.workspacePath}`);
+                      
+                      toast.success(`Successfully imported ${repo.name} from GitHub!`);
+                      resolve();
+                      return;
+                    }
+
+                    // Update progress status
+                    if (data.message) {
+                      toast.loading(data.message, { id: repo.fullName });
+                    }
+                  } catch (parseError) {
+                    console.error('Failed to parse progress data:', parseError);
+                  }
+                }
+              }
+            }
+          } finally {
+            reader.releaseLock();
+          }
+        }).catch((error) => {
+          console.error('Stream error:', error);
+          reject(error);
+        });
       });
       
-      toast.success(`Successfully imported ${repo.name} from GitHub!`);
       setSelectedRepo(null);
     } catch (error) {
       console.error('Error importing repository:', error);
-      toast.error('Failed to import repository');
+      toast.error(error instanceof Error ? error.message : 'Failed to import repository');
     } finally {
+      toast.dismiss(repo.fullName);
       setImportingRepo(null);
     }
   };
@@ -292,17 +374,6 @@ const GitHubProjectImporter: React.FC = () => {
               </div>
 
               <div className="space-y-2 text-sm text-gray-400 mb-4">
-                <div className="flex items-center justify-between">
-                  <span className="flex items-center">
-                    <StarIcon className="h-4 w-4 mr-1" />
-                    {formatNumber(repo.stargazersCount)}
-                  </span>
-                  <span className="flex items-center">
-                    <EyeIcon className="h-4 w-4 mr-1" />
-                    {formatNumber(repo.forksCount)} forks
-                  </span>
-                </div>
-                
                 {repo.language && (
                   <div className="flex items-center">
                     <div className="w-3 h-3 rounded-full bg-blue-400 mr-2"></div>
@@ -341,23 +412,21 @@ const GitHubProjectImporter: React.FC = () => {
                   href={repo.htmlUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex-1 py-2 px-3 text-center bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white transition-colors text-sm"
+                  className="flex-1 py-2 px-3 flex items-center justify-center bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white transition-colors"
+                  title="View on GitHub"
                 >
-                  <DocumentIcon className="h-4 w-4 inline mr-1" />
-                  View
+                  <EyeIcon className="h-4 w-4" />
                 </a>
                 <button
                   onClick={() => importRepository(repo)}
                   disabled={importingRepo === repo.fullName}
-                  className="flex-1 py-2 px-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+                  className="flex-1 py-2 px-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                  title="Import repository"
                 >
                   {importingRepo === repo.fullName ? (
-                    <div className="flex items-center justify-center">
-                      <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-white mr-1"></div>
-                      Importing...
-                    </div>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
                   ) : (
-                    'Import'
+                    <ArrowDownTrayIcon className="h-4 w-4" />
                   )}
                 </button>
               </div>

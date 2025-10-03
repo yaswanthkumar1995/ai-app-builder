@@ -21,8 +21,8 @@ FROM node:18-alpine
 
 WORKDIR /app
 
-# Install curl for health checks
-RUN apk add --no-cache curl
+# Install curl for health checks and git for repository operations
+RUN apk add --no-cache curl git
 
 # Copy package files
 COPY package*.json ./

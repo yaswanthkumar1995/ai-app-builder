@@ -16,6 +16,7 @@ const CodeEditor: React.FC = () => {
     updateFile,
     deleteFile,
     renameFile,
+    restructureCurrentProject,
   } = useProjectStore();
 
   const [editorContent, setEditorContent] = useState(selectedFile?.content || '');
@@ -31,6 +32,13 @@ const CodeEditor: React.FC = () => {
       setEditorContent(selectedFile.content || '');
     }
   }, [selectedFile]);
+
+  // Automatically restructure project when it loads to ensure proper folder hierarchy
+  useEffect(() => {
+    if (currentProject) {
+      restructureCurrentProject();
+    }
+  }, [currentProject?.id, restructureCurrentProject]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {

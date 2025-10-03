@@ -77,10 +77,10 @@ const FileTree: React.FC<FileTreeProps> = ({
           }`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
         >
-          {node.type === 'folder' && (
+          {node.type === 'folder' ? (
             <button
               onClick={() => toggleFolder(node.path)}
-              className="mr-1 p-0.5 hover:bg-gray-600 rounded"
+              className="mr-1 p-0.5 hover:bg-gray-600 rounded flex-shrink-0"
             >
               {isExpanded ? (
                 <ChevronDownIcon className="h-4 w-4 text-gray-400" />
@@ -88,10 +88,8 @@ const FileTree: React.FC<FileTreeProps> = ({
                 <ChevronRightIcon className="h-4 w-4 text-gray-400" />
               )}
             </button>
-          )}
-          
-          {node.type === 'folder' && !isExpanded && (
-            <div className="w-4 mr-1" />
+          ) : (
+            <div className="w-5 mr-1 flex-shrink-0" />
           )}
 
           <div className="flex items-center flex-1 min-w-0">
@@ -153,7 +151,16 @@ const FileTree: React.FC<FileTreeProps> = ({
 
         {node.type === 'folder' && isExpanded && node.children && (
           <div>
-            {node.children.map((child) => renderFileNode(child, depth + 1))}
+            {node.children
+              .slice()
+              .sort((a, b) => {
+                // Folders first, then files
+                if (a.type === 'folder' && b.type === 'file') return -1;
+                if (a.type === 'file' && b.type === 'folder') return 1;
+                // Within same type, sort alphabetically
+                return a.name.localeCompare(b.name);
+              })
+              .map((child) => renderFileNode(child, depth + 1))}
           </div>
         )}
       </div>
@@ -163,7 +170,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   return (
     <div className="h-full bg-gray-800 border-r border-gray-700">
       <div className="p-3 border-b border-gray-700">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-2">
           <h3 className="text-sm font-medium text-white">Project Files</h3>
           <div className="flex space-x-1">
             <button
@@ -193,7 +200,16 @@ const FileTree: React.FC<FileTreeProps> = ({
           </div>
         ) : (
           <div>
-            {files.map((file) => renderFileNode(file))}
+            {files
+              .slice()
+              .sort((a, b) => {
+                // Folders first, then files
+                if (a.type === 'folder' && b.type === 'file') return -1;
+                if (a.type === 'file' && b.type === 'folder') return 1;
+                // Within same type, sort alphabetically
+                return a.name.localeCompare(b.name);
+              })
+              .map((file) => renderFileNode(file))}
           </div>
         )}
       </div>

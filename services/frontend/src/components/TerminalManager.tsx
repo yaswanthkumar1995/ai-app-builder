@@ -91,9 +91,11 @@ const TerminalManager: React.FC = () => {
         },
         body: JSON.stringify({
           projectId: currentProject?.id,
-          workingDirectory: currentProject?.isGithubProject 
-            ? `/workspaces/${currentProject.id}` 
-            : `/workspace/${currentProject?.id || 'default'}`,
+          workspacePath: currentProject?.workspacePath,
+          workingDirectory: currentProject?.workspacePath || 
+            (currentProject?.isGithubProject 
+              ? `/workspaces/${currentProject.id}` 
+              : `/workspace/${currentProject?.id || 'default'}`),
           environment: {
             NODE_ENV: 'development',
             PROJECT_NAME: currentProject?.name || 'default',

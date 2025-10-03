@@ -1,5 +1,11 @@
 const express = require('express');
-const http = require('http');
+const http = r    const { userId, projectId, userEmail, workspacePath } = req.body;
+    console.log(`Creating terminal session for user: ${userId}`);
+    if (workspacePath) {
+      console.log(`Using workspace path: ${workspacePath}`);
+    }
+    
+    const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);re('http');
 const socketIo = require('socket.io');
 const pty = require('node-pty');
 const { exec } = require('child_process');
@@ -48,10 +54,13 @@ app.get('/socket.io-test', (req, res) => {
 // REST API endpoints for terminal session management
 app.post('/terminal/create-session', async (req, res) => {
   try {
-    const { userId, projectId, userEmail } = req.body;
+    const { userId, projectId, userEmail, workspacePath } = req.body;
     console.log(`REST: Creating terminal session for user: ${userId}`);
+    if (workspacePath) {
+      console.log(`Using workspace path: ${workspacePath}`);
+    }
     
-    const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+    const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);
     
     res.json({
       success: true,
@@ -129,11 +138,12 @@ app.get('/terminal/session/:userId', (req, res) => {
 
 // Direct PTY terminal session management
 class TerminalManager {
-  async createUserSession(userId, projectId = null, userEmail = null) {
+  async createUserSession(userId, projectId = null, userEmail = null, workspacePath = null) {
     try {
       const username = userEmail ? userEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') : `user${userId.slice(-4)}`;
       const sessionId = uuidv4();
-      const workingDir = projectId ? `/workspaces/${projectId}` : `/workspaces/default`;
+      // Use workspacePath if provided, otherwise use user-specific directory structure
+      const workingDir = workspacePath || (projectId ? `/workspaces/${userId}/${projectId}` : `/workspaces/${userId}/default`);
       const homeDir = `/tmp/users/${username}`;
       
       console.log(`Creating PTY terminal session for user: ${username}`);
@@ -387,10 +397,13 @@ io.on('connection', (socket) => {
 
   socket.on('create-terminal', async (data) => {
     try {
-      const { userId, projectId, userEmail } = data;
+      const { userId, projectId, userEmail, workspacePath } = data;
       console.log(`Creating PTY terminal for user: ${userId}`);
+      if (workspacePath) {
+        console.log(`Using workspace path: ${workspacePath}`);
+      }
 
-      const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+      const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);
       
       // Set up PTY data streaming
       const ptyProcess = sessionInfo.ptyProcess;
