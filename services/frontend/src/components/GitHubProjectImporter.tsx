@@ -359,15 +359,40 @@ const GitHubProjectImporter: React.FC = () => {
               className="bg-gray-800 rounded-lg p-6 border border-gray-700 hover:border-gray-600 transition-all duration-200"
             >
               <div className="mb-4">
-                <h3 className="text-lg font-semibold text-white mb-2 flex items-center">
-                  <CodeBracketIcon className="h-5 w-5 mr-2 text-blue-400" />
-                  {repo.name}
-                  {repo.private && (
-                    <span className="ml-2 px-2 py-1 text-xs bg-yellow-600 text-yellow-100 rounded">
-                      Private
-                    </span>
-                  )}
-                </h3>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center flex-1 min-w-0">
+                    <CodeBracketIcon className="h-5 w-5 mr-2 text-blue-400 flex-shrink-0" />
+                    <h3 className="text-lg font-semibold text-white truncate">{repo.name}</h3>
+                    {repo.private && (
+                      <span className="ml-2 px-2 py-1 text-xs bg-yellow-600 text-yellow-100 rounded flex-shrink-0">
+                        Private
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-1 ml-3 flex-shrink-0">
+                    <a
+                      href={repo.htmlUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-1.5 bg-gray-700 text-gray-300 rounded hover:bg-gray-600 hover:text-white transition-colors"
+                      title="View on GitHub"
+                    >
+                      <EyeIcon className="h-4 w-4" />
+                    </a>
+                    <button
+                      onClick={() => importRepository(repo)}
+                      disabled={importingRepo === repo.fullName}
+                      className="p-1.5 bg-green-600 text-white rounded hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      title="Import repository"
+                    >
+                      {importingRepo === repo.fullName ? (
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                      ) : (
+                        <ArrowDownTrayIcon className="h-4 w-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
                 <p className="text-sm text-gray-400 mb-3 line-clamp-2">
                   {repo.description || 'No description available'}
                 </p>
@@ -406,30 +431,6 @@ const GitHubProjectImporter: React.FC = () => {
                   </div>
                 </div>
               )}
-
-              <div className="flex space-x-2">
-                <a
-                  href={repo.htmlUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 py-2 px-3 flex items-center justify-center bg-gray-700 text-gray-300 rounded-md hover:bg-gray-600 hover:text-white transition-colors"
-                  title="View on GitHub"
-                >
-                  <EyeIcon className="h-4 w-4" />
-                </a>
-                <button
-                  onClick={() => importRepository(repo)}
-                  disabled={importingRepo === repo.fullName}
-                  className="flex-1 py-2 px-3 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
-                  title="Import repository"
-                >
-                  {importingRepo === repo.fullName ? (
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                  ) : (
-                    <ArrowDownTrayIcon className="h-4 w-4" />
-                  )}
-                </button>
-              </div>
             </div>
           ))}
         </div>
