@@ -10,6 +10,42 @@ const fsPromises = fs.promises;
 const path = require('path');
 const simpleGit = require('simple-git');
 
+const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,255}$/;
+
+const sanitizeWorkspaceSegment = (input = '', fallback = 'project') => {
+  const normalized = input
+    .toString()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '');
+
+  return normalized || fallback;
+};
+
+const isSafeGitRef = (value = '') => {
+  if (typeof value !== 'string') return false;
+  if (value.length === 0 || value.length > 255) return false;
+  if (!SAFE_GIT_REF_REGEX.test(value)) return false;
+  if (value.includes('..') || value.includes('~') || value.includes('^')) return false;
+  if (value.includes(':') || value.includes('?') || value.includes('*') || value.includes('[') || value.includes('\\')) return false;
+  if (value.includes('//') || value.includes('@{')) return false;
+  if (value.startsWith('/') || value.endsWith('/') || value.endsWith('.lock')) return false;
+  return true;
+};
+
+const writeInfoToTerminal = (sessionInfo, message) => {
+  if (!sessionInfo?.ptyProcess || sessionInfo.ptyProcess.killed) {
+    return;
+  }
+
+  const safeMessage = `# ${String(message || '')
+    .replace(/[\r\n]+/g, ' ')
+    .slice(0, 500)}`;
+
+  sessionInfo.ptyProcess.write(`${safeMessage}\r`);
+};
+
 const DATABASE_SERVICE_URL = process.env.DATABASE_SERVICE_URL || 'http://database-service:3003';
 
 const normalizeRepoUrl = (url = '') =>
@@ -249,7 +285,7 @@ app.get('/terminal/session/:userId', (req, res) => {
 // Git operations integrated with terminal workspace
 app.post('/git/clone', async (req, res) => {
   try {
-    const { repoUrl, branch, userId, projectName } = req.body;
+    const { repoUrl, branch, userId, projectName, userEmail } = req.body;
     
     if (!userId || !repoUrl || !branch) {
       return res.status(400).json({ 
@@ -258,34 +294,62 @@ app.post('/git/clone', async (req, res) => {
       });
     }
 
-    const sessionInfo = userSessions.get(userId);
-    if (!sessionInfo) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Terminal session not found for user' 
+    if (!isSafeGitRef(branch)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid branch name provided'
       });
     }
 
-  const workspacePath = sessionInfo.workingDir;
+    // Get username from session if exists, otherwise derive from email or userId
+    let username;
+    const sessionInfo = userSessions.get(userId);
+    if (sessionInfo) {
+      username = sessionInfo.username;
+    } else if (userEmail) {
+      username = userEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
+    } else {
+      username = `user${userId.slice(-8)}`;
+    }
+
     const repoIdentifier = normalizeRepoUrl(repoUrl);
-    const projectSlug = projectName || repoIdentifier.split('/').pop() || 'project';
-    const projectPath = path.join(workspacePath, projectSlug);
+    const projectSlugSource = projectName || repoIdentifier.split('/').pop() || 'project';
+    const projectSlug = sanitizeWorkspaceSegment(projectSlugSource);
+    
+    // Use username-based workspace
+    const userWorkspace = `/workspaces/${username}`;
+    const projectPath = path.join(userWorkspace, projectSlug);
+    const resolvedWorkspace = path.resolve(userWorkspace);
+    const resolvedProjectPath = path.resolve(projectPath);
+
+    if (!resolvedProjectPath.startsWith(`${resolvedWorkspace}${path.sep}`) && resolvedProjectPath !== resolvedWorkspace) {
+      throw new Error('Invalid project path resolved');
+    }
 
     const { token: githubToken } = await getGithubCredentials(userId);
     const authRepoUrl = repoUrl.includes('github.com') && githubToken
       ? buildAuthenticatedRepoUrl(repoUrl, githubToken)
       : repoUrl;
 
+    // Ensure the user workspace directory exists
+    if (!fs.existsSync(userWorkspace)) {
+      await fsPromises.mkdir(userWorkspace, { recursive: true });
+      console.log(`Created user workspace: ${userWorkspace}`);
+    }
+
     const repoAlreadyExists = fs.existsSync(projectPath);
     const repoAlreadyInitialized = fs.existsSync(path.join(projectPath, '.git'));
 
-    // Initialize git in workspace root for potential clone
-    const git = simpleGit(workspacePath);
+    // Initialize git in user workspace root for potential clone
+    const git = simpleGit(userWorkspace);
 
-    const cloneRepository = async () => {
-      await git.clone(authRepoUrl, projectPath, ['--depth', '1', '--single-branch', '--branch', branch]);
+    const cloneRepository = async (targetBranch) => {
+      await git.clone(authRepoUrl, projectPath, ['--depth', '1', '--single-branch', '--branch', targetBranch]);
       const projectGit = simpleGit(projectPath);
-      await projectGit.checkout(branch);
+      await projectGit.checkout(targetBranch);
+      if (githubToken && repoUrl.startsWith('http')) {
+        await projectGit.remote(['set-url', 'origin', repoUrl]);
+      }
     };
 
     if (repoAlreadyExists && repoAlreadyInitialized) {
@@ -301,7 +365,7 @@ app.post('/git/clone', async (req, res) => {
 
       if (!normalizedOrigin || normalizedOrigin !== repoIdentifier) {
         await fsPromises.rm(projectPath, { recursive: true, force: true });
-        await cloneRepository();
+        await cloneRepository(branch);
       } else {
         try {
           await projectGit.fetch();
@@ -310,20 +374,28 @@ app.post('/git/clone', async (req, res) => {
         } catch (syncError) {
           console.warn('Failed to update existing repository cleanly, re-cloning:', syncError.message || syncError);
           await fsPromises.rm(projectPath, { recursive: true, force: true });
-          await cloneRepository();
+          await cloneRepository(branch);
         }
       }
     } else {
       if (repoAlreadyExists) {
         await fsPromises.rm(projectPath, { recursive: true, force: true });
       }
-      await cloneRepository();
+      await cloneRepository(branch);
     }
 
-    sessionInfo.workingDir = projectPath;
-    sessionInfo.ptyProcess.write(`cd ${projectPath}\r`);
-    sessionInfo.ptyProcess.write(`git status\r`);
+    // Update session to point to the project directory (if session exists)
+    if (sessionInfo) {
+      sessionInfo.workingDir = projectPath;
+      
+      // Change terminal to project directory
+      sessionInfo.ptyProcess.write(`cd ${projectPath}\r`);
+      sessionInfo.ptyProcess.write(`clear\r`);
+      writeInfoToTerminal(sessionInfo, `Repository ready: ${projectSlug} (${branch})`);
+      sessionInfo.ptyProcess.write('git status\r');
+    }
 
+    // Update persistent workspace state
     updateUserWorkspaceState(userId, {
       currentProject: projectSlug,
       workspacePath: projectPath,
@@ -331,6 +403,8 @@ app.post('/git/clone', async (req, res) => {
       currentBranch: branch,
       lastUpdated: new Date().toISOString()
     });
+
+    console.log(`✅ Repository cloned to: ${projectPath} for user: ${username}`);
 
     res.json({
       success: true,
@@ -347,15 +421,20 @@ app.post('/git/clone', async (req, res) => {
     });
   }
 });
-
 app.post('/git/checkout', async (req, res) => {
   try {
     const { branch, userId, create } = req.body;
-    
     if (!userId || !branch) {
       return res.status(400).json({ 
         success: false, 
         error: 'userId and branch are required' 
+      });
+    }
+
+    if (!isSafeGitRef(branch)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid branch name provided'
       });
     }
 
@@ -372,11 +451,11 @@ app.post('/git/checkout', async (req, res) => {
     if (create) {
       // Create and checkout new branch
       await git.checkoutLocalBranch(branch);
-      sessionInfo.ptyProcess.write(`git checkout -b ${branch}\r`);
+      writeInfoToTerminal(sessionInfo, `Created and checked out ${branch}`);
     } else {
       // Checkout existing branch
       await git.checkout(branch);
-      sessionInfo.ptyProcess.write(`git checkout ${branch}\r`);
+      writeInfoToTerminal(sessionInfo, `Checked out ${branch}`);
     }
     
     // Update persistent workspace state with new branch
@@ -460,8 +539,7 @@ app.post('/git/commit', async (req, res) => {
     // Commit changes
     const result = await git.commit(message);
     
-    // Show command in terminal
-    sessionInfo.ptyProcess.write(`git add . && git commit -m "${message}"\r`);
+    writeInfoToTerminal(sessionInfo, `Committed changes: ${result.commit}`);
     
     res.json({
       success: true,
@@ -502,8 +580,7 @@ app.post('/git/push', async (req, res) => {
     // Push to remote
     const result = await git.push('origin', branch || 'HEAD');
     
-    // Show command in terminal
-    sessionInfo.ptyProcess.write(`git push origin ${branch || 'HEAD'}\r`);
+    writeInfoToTerminal(sessionInfo, `Pushed changes to ${branch || 'HEAD'}`);
     
     res.json({
       success: true,
@@ -553,6 +630,17 @@ app.get('/workspace/files/:userId', async (req, res) => {
     }
 
     const workspacePath = sessionInfo.workingDir;
+    const username = sessionInfo.username;
+    
+    // Security check: ensure workspace path is within user's home directory
+    const userHome = `/workspaces/${username}`;
+    if (!workspacePath.startsWith(userHome)) {
+      console.error(`Security violation: User ${username} attempted to access ${workspacePath}`);
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Cannot access files outside your workspace'
+      });
+    }
     
     if (!fs.existsSync(workspacePath)) {
       return res.json({
@@ -561,40 +649,65 @@ app.get('/workspace/files/:userId', async (req, res) => {
       });
     }
 
-    const buildFileTree = (dirPath, relativePath = '') => {
+    const buildFileTree = (dirPath, relativePath = '', readContent = true) => {
       const items = [];
-      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      
+      try {
+        const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+        
+        console.log(`📂 Reading directory: ${dirPath}, found ${entries.length} entries`);
 
-      for (const entry of entries) {
-        // Skip hidden files and common directories to ignore
-        if (entry.name.startsWith('.') || entry.name === 'node_modules') {
-          continue;
+        for (const entry of entries) {
+          // Skip node_modules and some system files, but include .git for repo detection
+          if (entry.name === 'node_modules' || entry.name === '.DS_Store') {
+            continue;
+          }
+
+          const fullPath = path.join(dirPath, entry.name);
+          const relPath = relativePath ? `/${relativePath}/${entry.name}` : `/${entry.name}`;
+
+          if (entry.isDirectory()) {
+            // Recursively read subdirectories
+            const children = buildFileTree(fullPath, relPath.substring(1), readContent);
+            items.push({
+              id: `folder-${relPath}`,
+              name: entry.name,
+              path: relPath,
+              type: 'folder',
+              children
+            });
+          } else {
+            const fileItem = {
+              id: `file-${relPath}`,
+              name: entry.name,
+              path: relPath,
+              type: 'file'
+            };
+            
+            // Read file content for small files (< 1MB)
+            if (readContent) {
+              try {
+                const stats = fs.statSync(fullPath);
+                if (stats.size < 1024 * 1024) { // 1MB limit
+                  fileItem.content = fs.readFileSync(fullPath, 'utf8');
+                }
+              } catch (err) {
+                console.warn(`Could not read file content for ${fullPath}:`, err.message);
+              }
+            }
+            
+            items.push(fileItem);
+          }
         }
-
-        const fullPath = path.join(dirPath, entry.name);
-        const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
-
-        if (entry.isDirectory()) {
-          const children = buildFileTree(fullPath, relPath);
-          items.push({
-            name: entry.name,
-            path: relPath,
-            type: 'folder',
-            children
-          });
-        } else {
-          items.push({
-            name: entry.name,
-            path: relPath,
-            type: 'file'
-          });
-        }
+      } catch (err) {
+        console.error(`Error reading directory ${dirPath}:`, err);
       }
 
       return items;
     };
 
     const files = buildFileTree(workspacePath);
+    console.log(`✅ Built file tree with ${files.length} root items`);
 
     res.json({
       success: true,
@@ -624,12 +737,24 @@ app.get('/workspace/file/:userId/*', async (req, res) => {
     }
 
     const fullPath = path.join(sessionInfo.workingDir, filePath);
+    const username = sessionInfo.username;
+    const userHome = `/workspaces/${username}`;
     
-    // Security check: ensure the path is within workspace
-    if (!fullPath.startsWith(sessionInfo.workingDir)) {
+    // Security check: ensure the path is within user's home directory
+    if (!fullPath.startsWith(userHome)) {
+      console.error(`Security violation: User ${username} attempted to access ${fullPath}`);
       return res.status(403).json({
         success: false,
-        error: 'Access denied'
+        error: 'Access denied: Cannot access files outside your workspace'
+      });
+    }
+    
+    // Additional security check: ensure no path traversal
+    const resolvedPath = path.resolve(fullPath);
+    if (!resolvedPath.startsWith(userHome)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied: Invalid file path'
       });
     }
 
@@ -689,49 +814,216 @@ class TerminalManager {
       // Determine working directory - prioritize persistent state over provided paths
       let workingDir;
       if (workspacePath) {
-        workingDir = workspacePath;
+        const resolvedRequestedPath = path.resolve(workspacePath);
+        if (!resolvedRequestedPath.startsWith(`/workspaces/${username}`)) {
+          throw new Error('Requested workspace path is outside of user workspace');
+        }
+        workingDir = resolvedRequestedPath;
       } else if (userState.workspacePath && fs.existsSync(userState.workspacePath)) {
         // Restore previous workspace if it exists
         workingDir = userState.workspacePath;
         console.log(`Restoring previous workspace: ${workingDir}`);
       } else {
-        // Default workspace
-        workingDir = projectId ? `/workspaces/${userId}/${projectId}` : `/workspaces/${userId}/default`;
+        // Default workspace - use username instead of userId for cleaner paths
+        workingDir = `/workspaces/${username}`;
       }
       
-      const homeDir = `/tmp/users/${username}`;
+      // Use workspace as home directory for the user
+      const homeDir = workingDir; // /workspaces/username is now the home directory
       
       console.log(`Creating PTY terminal session for user: ${username}`);
-      console.log(`Working directory: ${workingDir}`);
+      console.log(`Home directory (workspace): ${homeDir}`);
       
       // Create user account if it doesn't exist
       await this.createSystemUser(username, homeDir, workingDir);
       
-      // Create working directory
+      // Create working directory with proper permissions
       await this.ensureDirectory(workingDir);
-      await this.ensureDirectory(homeDir);
       
-      // Set permissions
+      // Set restrictive permissions - user can only access their own workspace
       try {
-        await this.executeCommand(`chown ${username}:${username} ${homeDir}`);
-        await this.executeCommand(`chown ${username}:${username} ${workingDir}`);
+        await this.executeCommand(`chown -R ${username}:${username} ${workingDir}`);
+        await this.executeCommand(`chmod 700 ${workingDir}`); // Only owner can read/write/execute
       } catch (error) {
         console.log('Permission setting failed, continuing...');
       }
       
-      // Create PTY process with login shell for the user (enables bash completion)
-      const ptyProcess = pty.spawn('su', ['-l', username], {
-        name: 'xterm',
+      // Create a restricted shell wrapper script that sources bashrc
+      const restrictedShellPath = path.join('/tmp', `restricted_shell_${username}.sh`);
+      const bashrcPath = path.join(workingDir, '.bashrc');
+      
+      // Create .bashrc with cd override and useful aliases
+      const bashrcContent = `# Restricted bashrc for workspace isolation
+export WORKSPACE_ROOT="${workingDir}"
+export HOME="${workingDir}"
+export USER="${username}"
+export PS1="${username}@workspace:\\w$ "
+
+# Helper function to check if a path is within workspace
+function _check_path_access() {
+  local target_path="\$1"
+  local resolved_path
+  
+  # Handle relative paths
+  if [[ "\$target_path" != /* ]]; then
+    target_path="\$(pwd)/\$target_path"
+  fi
+  
+  # Normalize path
+  if command -v realpath &> /dev/null; then
+    resolved_path="\$(realpath -m "\$target_path" 2>/dev/null || echo "\$target_path")"
+  else
+    resolved_path="\$(readlink -f "\$target_path" 2>/dev/null || echo "\$target_path")"
+  fi
+  
+  # Check if within workspace
+  if [[ "\$resolved_path" != "\$WORKSPACE_ROOT"* ]]; then
+    echo "⛔ Access denied: Cannot access files outside workspace" >&2
+    echo "   Workspace: \$WORKSPACE_ROOT" >&2
+    echo "   Attempted: \$resolved_path" >&2
+    return 1
+  fi
+  
+  return 0
+}
+
+# Override cd command to prevent leaving workspace
+function cd() {
+  local target="\${1:-.}"
+  local new_dir
+  
+  # Handle no arguments (cd to home)
+  if [ $# -eq 0 ]; then
+    new_dir="$WORKSPACE_ROOT"
+  # Absolute path
+  elif [[ "\$target" = /* ]]; then
+    new_dir="\$target"
+  # Relative path
+  else
+    new_dir="\$(pwd)/\$target"
+  fi
+  
+  # Normalize path
+  if command -v realpath &> /dev/null; then
+    new_dir="\$(realpath -m "\$new_dir" 2>/dev/null || echo "\$new_dir")"
+  else
+    new_dir="\$(readlink -f "\$new_dir" 2>/dev/null || echo "\$new_dir")"
+  fi
+  
+  # Check if the new directory is within workspace
+  if [[ "\$new_dir" != "\$WORKSPACE_ROOT"* ]]; then
+    echo "⛔ Access denied: Cannot navigate outside workspace"
+    echo "   Workspace: \$WORKSPACE_ROOT"
+    echo "   Attempted: \$new_dir"
+    return 1
+  fi
+  
+  # Check if directory exists
+  if [ ! -d "\$new_dir" ]; then
+    echo "bash: cd: \$target: No such file or directory"
+    return 1
+  fi
+  
+  # Perform the cd
+  builtin cd "\$new_dir"
+}
+
+# Override file access commands to prevent reading files outside workspace
+function cat() {
+  local file
+  for file in "\$@"; do
+    # Skip flags
+    [[ "\$file" == -* ]] && continue
+    _check_path_access "\$file" || return 1
+  done
+  command cat "\$@"
+}
+
+function ls() {
+  local arg
+  local has_path=0
+  for arg in "\$@"; do
+    # Skip flags
+    [[ "\$arg" == -* ]] && continue
+    has_path=1
+    _check_path_access "\$arg" || return 1
+  done
+  # If no path specified, ls current directory (which is safe)
+  command ls "\$@"
+}
+
+function vim() { _check_path_access "\$1" && command vim "\$@"; }
+function nano() { _check_path_access "\$1" && command nano "\$@"; }
+function less() { _check_path_access "\$1" && command less "\$@"; }
+function more() { _check_path_access "\$1" && command more "\$@"; }
+function head() { _check_path_access "\$1" && command head "\$@"; }
+function tail() { _check_path_access "\$1" && command tail "\$@"; }
+function grep() {
+  # For grep, check all non-flag arguments
+  local arg
+  for arg in "\$@"; do
+    [[ "\$arg" == -* ]] && continue
+    [ -e "\$arg" ] && { _check_path_access "\$arg" || return 1; }
+  done
+  command grep "\$@"
+}
+
+# Disable pushd/popd/dirs to prevent bypassing cd
+function pushd() { echo "⛔ pushd is disabled"; return 1; }
+function popd() { echo "⛔ popd is disabled"; return 1; }
+function dirs() { echo "⛔ dirs is disabled"; return 1; }
+
+# Safe aliases (no .. alias that could bypass cd)
+alias ls='ls --color=auto'
+alias ll='ls -lah'
+alias la='ls -A'
+alias l='ls -CF'
+
+# Enable bash completion if available
+if [ -f /etc/bash_completion ] && ! shopt -oq posix; then
+  . /etc/bash_completion
+fi
+
+# Git aliases
+alias gs='git status'
+alias ga='git add'
+alias gc='git commit'
+alias gp='git push'
+alias gl='git log --oneline'
+`;
+
+      // Write .bashrc
+      await fsPromises.writeFile(bashrcPath, bashrcContent, { mode: 0o644 });
+      
+      const restrictedShellScript = `#!/bin/bash
+# Restricted shell wrapper that enforces workspace isolation
+
+# Start bash with our custom bashrc
+exec /bin/bash --rcfile "${bashrcPath}" -i
+`;
+
+      // Write the restricted shell script
+      await fsPromises.writeFile(restrictedShellPath, restrictedShellScript, { mode: 0o755 });
+
+      // Create PTY process with restricted shell
+      const ptyProcess = pty.spawn(restrictedShellPath, [], {
+        name: 'xterm-256color',
         cols: 120,
         rows: 30,
         cwd: workingDir,
         env: {
-          TERM: 'xterm',
-          LANG: 'C',
-          LC_ALL: 'C',
-          PS1: username + '@terminal:\\w$ ',
+          TERM: 'xterm-256color',
+          LANG: 'en_US.UTF-8',
+          LC_ALL: 'en_US.UTF-8',
+          HOME: workingDir,
+          USER: username,
+          WORKSPACE_ROOT: workingDir,
+          PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
+          PS1: username + '@workspace:\\w$ ',
           DEBIAN_FRONTEND: 'noninteractive',
-          BASH_SILENCE_DEPRECATION_WARNING: '1'
+          BASH_SILENCE_DEPRECATION_WARNING: '1',
+          // Enable proper terminal handling
+          INPUTRC: '/etc/inputrc'
         }
       });
       
@@ -753,7 +1045,7 @@ class TerminalManager {
                 try {
                   await git.checkout(userState.currentBranch);
                   console.log(`Restored git branch: ${userState.currentBranch}`);
-                  ptyProcess.write(`# Restored to branch: ${userState.currentBranch}\r`);
+                  writeInfoToTerminal({ ptyProcess }, `Restored to branch: ${userState.currentBranch}`);
                 } catch (branchError) {
                   console.log(`Could not restore branch ${userState.currentBranch}:`, branchError.message);
                 }
@@ -799,12 +1091,19 @@ class TerminalManager {
       if (!userExists) {
         console.log(`Creating system user: ${username} with home: ${homeDir}`);
         
-        // Create user with home directory and bash shell
-        await this.executeCommand(`useradd -m -d ${homeDir} -s /bin/bash ${username}`);
+        // Create the home directory first with proper permissions
+        await this.ensureDirectory(homeDir);
+        
+        // Create user with home directory and bash shell (no create home since it exists)
+        await this.executeCommand(`useradd --no-create-home -d ${homeDir} -s /bin/bash ${username}`);
         await this.executeCommand(`echo "${username}:password" | chpasswd`);
         
         // Add user to sudo group for admin access
         await this.executeCommand(`usermod -aG sudo ${username}`);
+        
+        // Set ownership and restrictive permissions on home directory
+        await this.executeCommand(`chown -R ${username}:${username} ${homeDir}`);
+        await this.executeCommand(`chmod 700 ${homeDir}`);
         
         // Set up shell environment with proper PATH and bash completion
         const bashrc = `# Enable bash completion silently
@@ -832,8 +1131,36 @@ bind "set colored-stats on" 2>/dev/null
 bind "\\177" backward-delete-char 2>/dev/null  # DEL character (backspace)
 bind "\\e[3~" delete-char 2>/dev/null          # Forward delete
 
+# Workspace restriction - prevent leaving workspace
+export WORKSPACE_ROOT='${homeDir}'
+
+# Override cd to prevent directory traversal outside workspace
+cd() {
+  local target="\${1:-.}"
+  local new_dir
+  
+  # Resolve the target directory
+  if [[ "\$target" = /* ]]; then
+    new_dir="\$target"
+  else
+    new_dir="\$(pwd)/\$target"
+  fi
+  
+  # Normalize path
+  new_dir="\$(readlink -f "\$new_dir" 2>/dev/null || realpath "\$new_dir" 2>/dev/null || echo "\$new_dir")"
+  
+  # Check if trying to go outside workspace
+  if [[ "\$new_dir" != "\$WORKSPACE_ROOT"* ]] && [[ "\$new_dir" != "\$WORKSPACE_ROOT" ]]; then
+    echo "⛔ Access denied: Cannot navigate outside workspace (\$WORKSPACE_ROOT)"
+    return 1
+  fi
+  
+  # Perform the cd
+  builtin cd "\$new_dir" || return 1
+}
+
 # Set up environment with simple prompt
-export PS1='${username}@terminal:\\w$ '
+export PS1='${username}@workspace:\\w$ '
 export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 export HOME=${homeDir}
 export TERM=xterm

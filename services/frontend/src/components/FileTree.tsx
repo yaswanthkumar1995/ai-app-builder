@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon, ArrowPathIcon } from '@heroicons/react/24/outline';
+import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon, ArrowPathIcon, CodeBracketIcon } from '@heroicons/react/24/outline';
 
 interface FileNode {
   id: string;
@@ -54,6 +54,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/']));
   const [editingFile, setEditingFile] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
+  const [showPreview, setShowPreview] = useState(true);
 
   const toggleFolder = (folderPath: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -85,6 +86,37 @@ const FileTree: React.FC<FileTreeProps> = ({
       setEditingFile(null);
       setEditingName('');
     }
+  };
+
+  // Find the selected file node
+  const findFileNode = (nodes: FileNode[], path: string): FileNode | null => {
+    for (const node of nodes) {
+      if (node.path === path) return node;
+      if (node.children) {
+        const found = findFileNode(node.children, path);
+        if (found) return found;
+      }
+    }
+    return null;
+  };
+
+  const selectedFileNode = selectedFile ? findFileNode(files, selectedFile) : null;
+
+  // Get syntax highlighting class based on file extension
+  const getSyntaxClass = (filename: string): string => {
+    const ext = filename.split('.').pop()?.toLowerCase();
+    const syntaxMap: { [key: string]: string } = {
+      'js': 'language-javascript',
+      'jsx': 'language-javascript',
+      'ts': 'language-typescript',
+      'tsx': 'language-typescript',
+      'py': 'language-python',
+      'html': 'language-html',
+      'css': 'language-css',
+      'json': 'language-json',
+      'md': 'language-markdown',
+    };
+    return syntaxMap[ext || ''] || 'language-plaintext';
   };
 
   const renderFileNode = (node: FileNode, depth: number = 0) => {
@@ -220,6 +252,13 @@ const FileTree: React.FC<FileTreeProps> = ({
               <FolderIcon className="h-4 w-4" />
             </button>
           </div>
+          <button
+            onClick={() => setShowPreview(!showPreview)}
+            className={`p-1 rounded ${showPreview ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
+            title={showPreview ? "Hide preview" : "Show preview"}
+          >
+            <CodeBracketIcon className="h-4 w-4" />
+          </button>
         </div>
 
         {/* Repository and Branch side by side */}
@@ -275,7 +314,7 @@ const FileTree: React.FC<FileTreeProps> = ({
         </div>
       </div>
       
-      <div className="overflow-y-auto h-full">
+      <div className={`overflow-y-auto ${showPreview && selectedFileNode?.type === 'file' ? 'flex-1' : 'h-full'}`}>
         {files.length === 0 ? (
           <div className="p-4 text-center text-gray-400">
             <div className="text-2xl mb-2">📁</div>
@@ -297,6 +336,48 @@ const FileTree: React.FC<FileTreeProps> = ({
           </div>
         )}
       </div>
+
+      {/* Code Preview Panel */}
+      {showPreview && selectedFileNode?.type === 'file' && (
+        <div className="border-t border-gray-700 bg-gray-900 flex flex-col" style={{ height: '40%', minHeight: '200px' }}>
+          {/* Preview Header */}
+          <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
+            <div className="flex items-center space-x-2 min-w-0 flex-1">
+              <DocumentIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
+              <span className="text-xs font-medium text-gray-300 truncate" title={selectedFileNode.name}>
+                {selectedFileNode.name}
+              </span>
+            </div>
+            <button
+              onClick={() => setShowPreview(false)}
+              className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded flex-shrink-0"
+              title="Close preview"
+            >
+              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          
+          {/* Preview Content */}
+          <div className="flex-1 overflow-auto p-3">
+            {selectedFileNode.content ? (
+              <pre className="text-xs text-gray-300 font-mono leading-relaxed whitespace-pre-wrap break-words">
+                <code className={getSyntaxClass(selectedFileNode.name)}>
+                  {selectedFileNode.content}
+                </code>
+              </pre>
+            ) : (
+              <div className="flex items-center justify-center h-full text-gray-500 text-sm">
+                <div className="text-center">
+                  <DocumentIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
+                  <p>No content to preview</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

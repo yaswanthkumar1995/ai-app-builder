@@ -211,10 +211,6 @@ const CodeEditor: React.FC = () => {
       setSyncState('syncing');
       setSyncMessage(`Syncing ${repo.name} (${branchName})…`);
 
-      console.log('📡 Ensuring terminal session...');
-      await gitOps.ensureTerminalSession(undefined, user.email);
-      console.log('✅ Terminal session ready');
-
       let workspaceState: any = null;
       try {
         console.log('📡 Getting workspace state...');
@@ -244,6 +240,7 @@ const CodeEditor: React.FC = () => {
           branch: branchName,
           userId: user.id,
           projectName: repo.name,
+          userEmail: user.email,
         });
         console.log('✅ Clone completed successfully');
       } else if (workspaceState?.currentBranch !== branchName) {
@@ -262,15 +259,25 @@ const CodeEditor: React.FC = () => {
       console.log('📂 Loading workspace files...');
       const files = await gitOps.getWorkspaceFiles();
       console.log('✅ Workspace files loaded:', files.length, 'items');
+      console.log('📋 Files data:', JSON.stringify(files.slice(0, 3), null, 2));
       
       // Create or update project with files
       if (files && files.length > 0) {
         const projectName = repo.name;
         const existingProject = currentProject;
         
+        console.log('🔍 Current project check:', {
+          hasProject: !!existingProject,
+          currentRepo: existingProject?.githubRepo,
+          currentBranch: existingProject?.githubBranch,
+          newRepo: repoFullName,
+          newBranch: branchName,
+          needsCreate: !existingProject || existingProject.githubRepo !== repoFullName || existingProject.githubBranch !== branchName
+        });
+        
         if (!existingProject || existingProject.githubRepo !== repoFullName || existingProject.githubBranch !== branchName) {
           // Create new project with GitHub files
-          console.log('🆕 Creating project with GitHub files');
+          console.log('🆕 Creating project with GitHub files, count:', files.length);
           createProject(
             projectName,
             `Cloned from ${repoFullName}`,
@@ -281,7 +288,12 @@ const CodeEditor: React.FC = () => {
               workspacePath: workspaceState?.workspacePath
             }
           );
+          console.log('✅ Project created/updated in store');
+        } else {
+          console.log('ℹ️ Project already exists with same repo/branch, skipping create');
         }
+      } else {
+        console.warn('⚠️ No files returned from workspace');
       }
 
       setSyncState('success');

@@ -13,6 +13,9 @@ export interface FileNode {
 
 // Convert flat file list to hierarchical structure
 export function buildFileTree(files: FileNode[]): FileNode[] {
+  console.log('🌲 buildFileTree called with', files.length, 'files');
+  console.log('📋 Sample files:', files.slice(0, 3));
+  
   const tree: FileNode[] = [];
   const pathMap = new Map<string, FileNode>();
 
@@ -77,7 +80,9 @@ export function buildFileTree(files: FileNode[]): FileNode[] {
   }
 
   // Sort the tree: folders first, then files, both alphabetically
-  return sortFileTree(tree);
+  const sortedTree = sortFileTree(tree);
+  console.log('🌲 buildFileTree result:', sortedTree.length, 'root items');
+  return sortedTree;
 }
 
 // Sort file tree with folders first, then files (like VS Code)

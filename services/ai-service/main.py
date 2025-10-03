@@ -1,11 +1,11 @@
 from fastapi import FastAPI, HTTPException, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 import httpx
 import os
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import requests
 from github import Github
 import ollama
@@ -39,17 +39,56 @@ class ChatRequest(BaseModel):
     max_tokens: Optional[int] = 1000
 
 class ProviderSettings(BaseModel):
-    openai: Dict[str, Any]
-    anthropic: Dict[str, Any]
-    google: Dict[str, Any]
+    openai: Dict[str, Any] = Field(default_factory=lambda: {"apiKey": "", "enabled": False})
+    anthropic: Dict[str, Any] = Field(default_factory=lambda: {"apiKey": "", "enabled": False})
+    google: Dict[str, Any] = Field(default_factory=lambda: {"apiKey": "", "enabled": False})
+    github: Dict[str, Any] = Field(default_factory=lambda: {"apiKey": "", "enabled": False})
+    ollama: Dict[str, Any] = Field(default_factory=lambda: {"baseUrl": "", "enabled": False})
+    preferences: Dict[str, Any] = Field(default_factory=dict)
+    workflow: Dict[str, Any] = Field(default_factory=dict)
 
-# Global variable to cache provider settings
-provider_settings_cache = {}
+    class Config:
+        extra = "allow"
+
+# Provider settings cache (in-memory)
+PROVIDER_SETTINGS_CACHE_TTL_SECONDS = int(os.getenv("PROVIDER_SETTINGS_CACHE_TTL_SECONDS", "300"))
+provider_settings_cache: Dict[str, Any] = {}
+
+
+def invalidate_provider_settings_cache(user_id: Optional[str] = None) -> None:
+    """Invalidate cached provider settings for a specific user or all users."""
+    if user_id is None:
+        provider_settings_cache.clear()
+    else:
+        provider_settings_cache.pop(user_id, None)
+
+
+def _get_cached_provider_settings(user_id: str) -> Optional[ProviderSettings]:
+    entry = provider_settings_cache.get(user_id)
+    if not entry:
+        return None
+
+    # Backwards compatibility: legacy entries were stored as raw dicts
+    if not isinstance(entry, dict) or "data" not in entry or "fetched_at" not in entry:
+        provider_settings_cache.pop(user_id, None)
+        return None
+
+    fetched_at = entry["fetched_at"]
+    if not isinstance(fetched_at, datetime):
+        provider_settings_cache.pop(user_id, None)
+        return None
+
+    if datetime.utcnow() - fetched_at > timedelta(seconds=PROVIDER_SETTINGS_CACHE_TTL_SECONDS):
+        provider_settings_cache.pop(user_id, None)
+        return None
+
+    return ProviderSettings(**entry["data"])
 
 async def get_user_provider_settings(user_id: str) -> ProviderSettings:
     """Fetch user provider settings from database service"""
-    if user_id in provider_settings_cache:
-        return ProviderSettings(**provider_settings_cache[user_id])
+    cached = _get_cached_provider_settings(user_id)
+    if cached:
+        return cached
 
     try:
         async with httpx.AsyncClient() as client:
@@ -60,23 +99,17 @@ async def get_user_provider_settings(user_id: str) -> ProviderSettings:
 
             if response.status_code == 200:
                 settings = response.json()
-                provider_settings_cache[user_id] = settings
-                return ProviderSettings(**settings)
+                settings_model = ProviderSettings(**settings)
+                provider_settings_cache[user_id] = {
+                    "data": settings_model.model_dump(),
+                    "fetched_at": datetime.utcnow(),
+                }
+                return settings_model
             else:
-                # Return default settings if user has no custom settings
-                return ProviderSettings(
-                    openai={"apiKey": "", "enabled": False},
-                    anthropic={"apiKey": "", "enabled": False},
-                    google={"apiKey": "", "enabled": False}
-                )
+                return ProviderSettings()
     except Exception as e:
         print(f"Error fetching provider settings: {e}")
-        # Return default settings on error
-        return ProviderSettings(
-            openai={"apiKey": "", "enabled": False},
-            anthropic={"apiKey": "", "enabled": False},
-            google={"apiKey": "", "enabled": False}
-        )
+        return ProviderSettings()
 
 def get_provider_client(provider: str, api_key: str = None):
     """Get the appropriate AI provider client"""

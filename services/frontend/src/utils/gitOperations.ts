@@ -7,6 +7,7 @@ interface GitOperation {
   message?: string;
   userId?: string;
   projectName?: string;
+  userEmail?: string;
   create?: boolean;
   files?: string[];
 }
@@ -59,7 +60,8 @@ export class GitOperations {
         branch: operation.branch,
         message: operation.message,
         userId,
-        projectName: operation.projectName
+        projectName: operation.projectName,
+        userEmail: operation.userEmail
       })
     });
 

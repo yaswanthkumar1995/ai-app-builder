@@ -79,11 +79,11 @@ export const useAuthStore = create<AuthState>()(
             throw new Error(errorData.error || 'Registration failed');
           }
 
-          const data = await response.json();
+          await response.json();
           set({
-            user: data.user,
-            token: data.token,
-            isAuthenticated: true,
+            user: null,
+            token: null,
+            isAuthenticated: false,
             isLoading: false,
           });
         } catch (error) {
