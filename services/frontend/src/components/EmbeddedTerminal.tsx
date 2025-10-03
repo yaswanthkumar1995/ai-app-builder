@@ -407,18 +407,6 @@ const EmbeddedTerminal: React.FC = () => {
         </pre>
       </div>
 
-      <div className="bg-gray-800 px-4 py-2 border-t border-gray-700 text-xs text-gray-400">
-        <div className="flex justify-between items-center">
-          <span>
-            {activeSession ? `Session: ${activeSession.sessionId.slice(0, 8)}` : 'No active session'}
-          </span>
-          <div className="space-x-4">
-            <span>Ctrl+C: Interrupt</span>
-            <span>Ctrl+L: Clear</span>
-            <span>Tab: Completion</span>
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

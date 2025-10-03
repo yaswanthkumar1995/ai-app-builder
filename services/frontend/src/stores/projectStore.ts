@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { buildFileTree, flattenFileTree } from '../utils/fileUtils';
+import { buildFileTree, flattenFileTree, getLanguageFromExtension } from '../utils/fileUtils';
 
 export interface FileNode {
   id: string;
@@ -30,6 +30,7 @@ interface ProjectState {
   currentProject: Project | null;
   projects: Project[];
   selectedFile: FileNode | null;
+  openTabs: string[];
   isLoading: boolean;
   
   // Actions
@@ -45,6 +46,7 @@ interface ProjectState {
   deleteFile: (filePath: string) => void;
   renameFile: (filePath: string, newName: string) => void;
   moveFile: (filePath: string, newParentPath: string) => void;
+  closeTab: (filePath: string) => void;
   
   // Utility functions
   getFileByPath: (path: string) => FileNode | null;
@@ -139,6 +141,7 @@ export const useProjectStore = create<ProjectState>()(
       currentProject: null,
       projects: [],
       selectedFile: null,
+      openTabs: [],
       isLoading: false,
 
       createProject: (name: string, description?: string, githubData?: { repo: string; branch: string; files?: any[]; workspacePath?: string }) => {
@@ -165,6 +168,7 @@ export const useProjectStore = create<ProjectState>()(
           projects: [...state.projects, newProject],
           currentProject: newProject,
           selectedFile: null,
+          openTabs: [],
         }));
       },
 
@@ -174,6 +178,7 @@ export const useProjectStore = create<ProjectState>()(
           set({
             currentProject: project,
             selectedFile: null,
+            openTabs: [],
           });
         }
       },
@@ -199,11 +204,21 @@ export const useProjectStore = create<ProjectState>()(
         set((state) => ({
           projects: state.projects.filter(p => p.id !== projectId),
           currentProject: state.currentProject?.id === projectId ? null : state.currentProject,
+          selectedFile: state.currentProject?.id === projectId ? null : state.selectedFile,
+          openTabs: state.currentProject?.id === projectId ? [] : state.openTabs,
         }));
       },
 
       selectFile: (file: FileNode) => {
-        set({ selectedFile: file });
+        set((state) => {
+          const alreadyOpen = state.openTabs.includes(file.path);
+          const openTabs = alreadyOpen ? state.openTabs : [...state.openTabs, file.path];
+
+          return {
+            selectedFile: file,
+            openTabs,
+          };
+        });
       },
 
       // Convert flat file structure to hierarchical structure for existing projects
@@ -239,43 +254,87 @@ export const useProjectStore = create<ProjectState>()(
         const { currentProject } = get();
         if (!currentProject) return;
 
+        const normalizeParentPath = (path: string) => {
+          if (!path || path === '/') {
+            return '';
+          }
+          const trimmed = path.trim();
+          const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+          return withLeadingSlash.replace(/\/+/g, '/').replace(/\/+$/, '');
+        };
+
+        const normalizedParent = normalizeParentPath(parentPath);
+        const trimmedName = name?.trim() || (type === 'file' ? 'untitled.ts' : 'untitled-folder');
+        let sanitizedName = trimmedName.replace(/[\\/]+/g, '-');
+        if (sanitizedName.length === 0) {
+          sanitizedName = type === 'file' ? 'untitled.ts' : 'untitled-folder';
+        }
+
+        const buildPath = () => {
+          const base = normalizedParent ? normalizedParent.replace(/\/+$/, '') : '';
+          const combined = `${base ? base + '/' : ''}${sanitizedName}`;
+          const normalized = combined.replace(/\/+/g, '/');
+          return normalized.startsWith('/') ? normalized : `/${normalized}`;
+        };
+
+        const newPath = buildPath();
+
         const newFile: FileNode = {
           id: Date.now().toString(),
-          name,
+          name: sanitizedName,
           type,
-          path: `${parentPath}/${name}`,
-          content: type === 'file' ? (content || '') : undefined,
-          language: type === 'file' ? 'javascript' : undefined,
+          path: newPath,
+          children: type === 'folder' ? [] : undefined,
+          content: type === 'file' ? (content ?? '') : undefined,
+          language: type === 'file' ? getLanguageFromExtension(sanitizedName) : undefined,
           lastModified: new Date(),
         };
 
-        const updateFiles = (nodes: FileNode[]): FileNode[] => {
-          return nodes.map(node => {
-            if (node.path === parentPath) {
-              return {
-                ...node,
-                children: [...(node.children || []), newFile],
-              };
-            }
-            if (node.children) {
-              return {
-                ...node,
-                children: updateFiles(node.children),
-              };
-            }
-            return node;
-          });
-        };
+        let updatedFiles: FileNode[] = [];
 
-        const updatedFiles = updateFiles(currentProject.files);
+        if (!normalizedParent) {
+          updatedFiles = [...currentProject.files, newFile];
+        } else {
+          let parentFound = false;
 
-        set((state) => ({
-          currentProject: {
+          const attachNode = (nodes: FileNode[]): FileNode[] => {
+            return nodes.map(node => {
+              if (node.path === normalizedParent) {
+                parentFound = true;
+                return {
+                  ...node,
+                  children: [...(node.children || []), newFile],
+                };
+              }
+              if (node.children) {
+                return {
+                  ...node,
+                  children: attachNode(node.children),
+                };
+              }
+              return node;
+            });
+          };
+
+          const treeWithNewNode = attachNode(currentProject.files);
+          updatedFiles = parentFound ? treeWithNewNode : [...currentProject.files, newFile];
+        }
+
+        set((state) => {
+          const updatedProject = {
             ...state.currentProject!,
             files: updatedFiles,
             updatedAt: new Date(),
-          },
-        }));
+          };
+
+          const shouldAddTab = type === 'file' && !state.openTabs.includes(newPath);
+
+          return {
+            currentProject: updatedProject,
+            selectedFile: type === 'file' ? newFile : state.selectedFile,
+            openTabs: shouldAddTab ? [...state.openTabs, newPath] : state.openTabs,
+          };
+        });
 
         get().saveProject();
       },
@@ -337,13 +396,37 @@ export const useProjectStore = create<ProjectState>()(
 
         const updatedFiles = updateFiles(currentProject.files);
 
+        const previousTabs = get().openTabs;
+        const closingIndex = previousTabs.indexOf(filePath);
+        const updatedOpenTabs = previousTabs.filter(path => !(path === filePath || path.startsWith(`${filePath}/`)));
+        const fallbackIndex = closingIndex >= 0 ? Math.min(closingIndex, Math.max(updatedOpenTabs.length - 1, 0)) : Math.max(updatedOpenTabs.length - 1, 0);
+        const fallbackPath = updatedOpenTabs.length > 0 ? updatedOpenTabs[fallbackIndex] : null;
+        const nextSelected = updatedOpenTabs.includes(get().selectedFile?.path || '')
+          ? get().selectedFile
+          : fallbackPath
+            ? ((): FileNode | null => {
+                const findFile = (nodes: FileNode[]): FileNode | null => {
+                  for (const node of nodes) {
+                    if (node.path === fallbackPath) return node;
+                    if (node.children) {
+                      const found = findFile(node.children);
+                      if (found) return found;
+                    }
+                  }
+                  return null;
+                };
+                return findFile(updatedFiles);
+              })()
+            : null;
+
         set((state) => ({
           currentProject: {
             ...state.currentProject!,
             files: updatedFiles,
             updatedAt: new Date(),
           },
-          selectedFile: state.selectedFile?.path === filePath ? null : state.selectedFile,
+          openTabs: updatedOpenTabs,
+          selectedFile: nextSelected,
         }));
 
         get().saveProject();
@@ -352,6 +435,9 @@ export const useProjectStore = create<ProjectState>()(
       renameFile: (filePath: string, newName: string) => {
         const { currentProject } = get();
         if (!currentProject) return;
+
+        const originalNode = get().getFileByPath(filePath);
+        const isFolder = originalNode?.type === 'folder';
 
         const updateFiles = (nodes: FileNode[]): FileNode[] => {
           return nodes.map(node => {
@@ -376,16 +462,64 @@ export const useProjectStore = create<ProjectState>()(
 
         const updatedFiles = updateFiles(currentProject.files);
 
-        set((state) => ({
-          currentProject: {
-            ...state.currentProject!,
-            files: updatedFiles,
-            updatedAt: new Date(),
-          },
-          selectedFile: state.selectedFile?.path === filePath 
-            ? { ...state.selectedFile, name: newName, lastModified: new Date() }
-            : state.selectedFile,
-        }));
+        const parentPath = filePath.split('/').slice(0, -1).join('/');
+        const normalizedParent = parentPath === '' ? '' : parentPath;
+        const newPath = `${normalizedParent}/${newName}`.replace('//', '/');
+        const oldPrefix = isFolder ? `${filePath}/` : null;
+
+        const updatedOpenTabs = get().openTabs.map(path => {
+          if (path === filePath) {
+            return newPath;
+          }
+          if (oldPrefix && path.startsWith(oldPrefix)) {
+            return `${newPath}/${path.slice(oldPrefix.length)}`.replace('//', '/');
+          }
+          return path;
+        });
+
+        const previousSelected = get().selectedFile;
+        let nextSelectedPath = previousSelected?.path || null;
+
+        if (previousSelected) {
+          if (previousSelected.path === filePath) {
+            nextSelectedPath = newPath;
+          } else if (oldPrefix && previousSelected.path.startsWith(oldPrefix)) {
+            nextSelectedPath = `${newPath}/${previousSelected.path.slice(oldPrefix.length)}`.replace('//', '/');
+          }
+        }
+
+        if (nextSelectedPath && !updatedOpenTabs.includes(nextSelectedPath)) {
+          nextSelectedPath = updatedOpenTabs[0] || null;
+        }
+
+        const findInUpdated = (nodes: FileNode[], path: string): FileNode | null => {
+          for (const node of nodes) {
+            if (node.path === path) {
+              return node;
+            }
+            if (node.children) {
+              const found = findInUpdated(node.children, path);
+              if (found) {
+                return found;
+              }
+            }
+          }
+          return null;
+        };
+
+        const nextSelectedNode = nextSelectedPath ? findInUpdated(updatedFiles, nextSelectedPath) : null;
+
+        const updatedProject = {
+          ...currentProject,
+          files: updatedFiles,
+          updatedAt: new Date(),
+        };
+
+        set({
+          currentProject: updatedProject,
+          openTabs: updatedOpenTabs,
+          selectedFile: nextSelectedNode,
+        });
 
         get().saveProject();
       },
@@ -393,6 +527,30 @@ export const useProjectStore = create<ProjectState>()(
       moveFile: (filePath: string, newParentPath: string) => {
         // TODO: Implement file moving functionality
         console.log('Move file:', filePath, 'to:', newParentPath);
+      },
+
+      closeTab: (filePath: string) => {
+        set((state) => {
+          const tabIndex = state.openTabs.indexOf(filePath);
+          if (tabIndex === -1) {
+            return state;
+          }
+
+          const updatedTabs = state.openTabs.filter(path => path !== filePath);
+          let nextSelected: FileNode | null = state.selectedFile;
+
+          if (state.selectedFile?.path === filePath) {
+            const fallbackPath = updatedTabs.length > 0
+              ? updatedTabs[Math.min(tabIndex, updatedTabs.length - 1)]
+              : null;
+            nextSelected = fallbackPath ? get().getFileByPath(fallbackPath) : null;
+          }
+
+          return {
+            openTabs: updatedTabs,
+            selectedFile: nextSelected,
+          };
+        });
       },
 
       getFileByPath: (path: string): FileNode | null => {
@@ -460,6 +618,7 @@ export const useProjectStore = create<ProjectState>()(
     {
       name: 'project-store',
       partialize: (state) => ({
+        openTabs: state.openTabs,
         projects: state.projects.map(project => ({
           ...project,
           createdAt: project.createdAt.toISOString(),
@@ -481,6 +640,7 @@ export const useProjectStore = create<ProjectState>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (state) {
+          state.openTabs = state.openTabs || [];
           // Convert ISO strings back to Date objects
           state.projects = state.projects.map(project => ({
             ...project,

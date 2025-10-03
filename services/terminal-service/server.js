@@ -802,43 +802,45 @@ class TerminalManager {
     try {
       const username = userEmail ? userEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') : `user${userId.slice(-4)}`;
       const sessionId = uuidv4();
-      
-      // Load persistent workspace state
+
+      const workspaceRoot = `/workspaces/${username}`;
       const userState = getUserWorkspaceState(userId);
-      
-      // Determine working directory - prioritize persistent state over provided paths
-      let workingDir;
+
+      let workingDir = workspaceRoot;
       if (workspacePath) {
         const resolvedRequestedPath = path.resolve(workspacePath);
-        if (!resolvedRequestedPath.startsWith(`/workspaces/${username}`)) {
+        if (!resolvedRequestedPath.startsWith(`${workspaceRoot}`)) {
           throw new Error('Requested workspace path is outside of user workspace');
         }
         workingDir = resolvedRequestedPath;
       } else if (userState.workspacePath && fs.existsSync(userState.workspacePath)) {
-        // Restore previous workspace if it exists
-        workingDir = userState.workspacePath;
-        console.log(`Restoring previous workspace: ${workingDir}`);
-      } else {
-        // Default workspace - use username instead of userId for cleaner paths
-        workingDir = `/workspaces/${username}`;
+        const resolvedStatePath = path.resolve(userState.workspacePath);
+        if (resolvedStatePath.startsWith(`${workspaceRoot}`)) {
+          workingDir = resolvedStatePath;
+          console.log(`Restoring previous workspace: ${workingDir}`);
+        }
       }
-      
-      // Use workspace as home directory for the user
-      const homeDir = workingDir; // /workspaces/username is now the home directory
-      
+
+      const homeDir = workspaceRoot;
+
       console.log(`Creating PTY terminal session for user: ${username}`);
-      console.log(`Home directory (workspace): ${homeDir}`);
+      console.log(`Home directory: ${homeDir}`);
+      console.log(`Initial working directory: ${workingDir}`);
       
       // Create user account if it doesn't exist
       await this.createSystemUser(username, homeDir, workingDir);
-      
-      // Create working directory with proper permissions
-      await this.ensureDirectory(workingDir);
-      
-      // Set restrictive permissions - user can only access their own workspace
+
+      await this.ensureDirectory(homeDir);
+      if (workingDir !== homeDir) {
+        await this.ensureDirectory(workingDir);
+      }
+
       try {
-        await this.executeCommand(`chown -R ${username}:${username} ${workingDir}`);
-        await this.executeCommand(`chmod 700 ${workingDir}`); // Only owner can read/write/execute
+        await this.executeCommand(`chown -R ${username}:${username} ${homeDir}`);
+        if (workingDir !== homeDir) {
+          await this.executeCommand(`chown -R ${username}:${username} ${workingDir}`);
+        }
+        await this.executeCommand(`chmod 700 ${homeDir}`);
       } catch (error) {
         console.log('Permission setting failed, continuing...');
       }
@@ -848,9 +850,9 @@ class TerminalManager {
       const bashrcPath = path.join(workingDir, '.bashrc');
       
       // Create .bashrc with cd override and useful aliases
-      const bashrcContent = `# Restricted bashrc for workspace isolation
-export WORKSPACE_ROOT="${workingDir}"
-export HOME="${workingDir}"
+  const bashrcContent = `# Restricted bashrc for workspace isolation
+export WORKSPACE_ROOT="${workspaceRoot}"
+export HOME="${homeDir}"
 export USER="${username}"
 export PS1="${username}@workspace:\\w$ "
 
@@ -1010,9 +1012,9 @@ exec /bin/bash --rcfile "${bashrcPath}" -i
           TERM: 'xterm-256color',
           LANG: 'en_US.UTF-8',
           LC_ALL: 'en_US.UTF-8',
-          HOME: workingDir,
+          HOME: homeDir,
           USER: username,
-          WORKSPACE_ROOT: workingDir,
+          WORKSPACE_ROOT: workspaceRoot,
           PATH: '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin',
           PS1: username + '@workspace:\\w$ ',
           DEBIAN_FRONTEND: 'noninteractive',

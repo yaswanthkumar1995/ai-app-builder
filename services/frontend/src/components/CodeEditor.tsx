@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import Editor from '@monaco-editor/react';
 import { FolderIcon, ChatBubbleLeftRightIcon, XMarkIcon, CommandLineIcon, ArrowPathIcon, DocumentIcon } from '@heroicons/react/24/outline';
 import { useAuthStore } from '../stores/authStore';
@@ -21,6 +21,38 @@ const normalizeRepoIdentifier = (url?: string) => {
     .toLowerCase();
 };
 
+type StoredEditorPreferences = {
+  showTerminal?: boolean;
+  terminalHeight?: number;
+  selectedRepo?: string;
+  selectedBranch?: string;
+};
+
+const PREFERENCES_STORAGE_KEY = 'ai-app-builder:code-editor-preferences';
+
+const loadStoredPreferences = (): StoredEditorPreferences => {
+  if (typeof window === 'undefined') {
+    return {};
+  }
+
+  try {
+    const raw = window.localStorage.getItem(PREFERENCES_STORAGE_KEY);
+    if (!raw) {
+      return {};
+    }
+
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === 'object') {
+      return parsed as StoredEditorPreferences;
+    }
+
+    return {};
+  } catch (error) {
+    console.warn('Failed to read editor preferences from storage', error);
+    return {};
+  }
+};
+
 const CodeEditor: React.FC = () => {
   const {
     currentProject,
@@ -32,28 +64,43 @@ const CodeEditor: React.FC = () => {
     renameFile,
     restructureCurrentProject,
     createProject,
+    openTabs,
+    closeTab,
+    getFileByPath,
   } = useProjectStore();
+
+  const storedPreferencesRef = useRef<StoredEditorPreferences | null>(null);
+  if (storedPreferencesRef.current === null) {
+    storedPreferencesRef.current = loadStoredPreferences();
+  }
+  const initialPreferences = storedPreferencesRef.current || {};
+  const initialShowTerminal = initialPreferences.showTerminal ?? false;
+  const initialTerminalHeight = typeof initialPreferences.terminalHeight === 'number' && !Number.isNaN(initialPreferences.terminalHeight)
+    ? initialPreferences.terminalHeight
+    : 300;
+  const initialSelectedRepo = initialPreferences.selectedRepo ?? '';
+  const initialSelectedBranch = initialPreferences.selectedBranch ?? '';
 
   const [editorContent, setEditorContent] = useState(selectedFile?.content || '');
   const [showFileTree, setShowFileTree] = useState(true);
   const [showChat, setShowChat] = useState(false);
-  const [showTerminal, setShowTerminal] = useState(false);
-  const [terminalHeight, setTerminalHeight] = useState(300);
+  const [showTerminal, setShowTerminal] = useState<boolean>(() => initialShowTerminal);
+  const [terminalHeight, setTerminalHeight] = useState<number>(() => initialTerminalHeight);
   const [fileTreeWidth, setFileTreeWidth] = useState(320);
   const [chatWidth, setChatWidth] = useState(320);
   const MIN_EDITOR_WIDTH = 360;
   const MIN_FILETREE_WIDTH = 220;
   const MIN_CHAT_WIDTH = 260;
-  const fileTreeWidthRef = useRef(fileTreeWidth);
-  const chatWidthRef = useRef(chatWidth);
   const editorRef = useRef<any>(null);
   const resizerRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const fileTreeWidthRef = useRef(fileTreeWidth);
+  const chatWidthRef = useRef(chatWidth);
   const { token, user } = useAuthStore();
   const [repos, setRepos] = useState<any[]>([]);
   const [branches, setBranches] = useState<string[]>([]);
-  const [selectedRepo, setSelectedRepo] = useState<string>('');
-  const [selectedBranch, setSelectedBranch] = useState<string>('');
+  const [selectedRepo, setSelectedRepo] = useState<string>(() => initialSelectedRepo);
+  const [selectedBranch, setSelectedBranch] = useState<string>(() => initialSelectedBranch);
   const [repoError, setRepoError] = useState<string | null>(null);
   const [branchError, setBranchError] = useState<string | null>(null);
   const [reposLoading, setReposLoading] = useState(false);
@@ -64,6 +111,22 @@ const CodeEditor: React.FC = () => {
   const gitOpsRef = useRef<GitOperations | null>(null);
   const lastSyncKeyRef = useRef<string | null>(null);
   const syncInFlightRef = useRef(false);
+  const shouldHydrateSelectionRef = useRef<boolean>(Boolean(initialSelectedRepo));
+  const openTabNodes = useMemo(
+    () =>
+      openTabs
+        .map((path) => getFileByPath(path))
+        .filter((node): node is FileNode => Boolean(node)),
+    [getFileByPath, openTabs]
+  );
+
+  useEffect(() => {
+    fileTreeWidthRef.current = fileTreeWidth;
+  }, [fileTreeWidth]);
+
+  useEffect(() => {
+    chatWidthRef.current = chatWidth;
+  }, [chatWidth]);
 
   useEffect(() => {
     if (token && user?.id) {
@@ -74,12 +137,23 @@ const CodeEditor: React.FC = () => {
   }, [token, user?.id]);
 
   useEffect(() => {
-    fileTreeWidthRef.current = fileTreeWidth;
-  }, [fileTreeWidth]);
+    if (typeof window === 'undefined') {
+      return;
+    }
 
-  useEffect(() => {
-    chatWidthRef.current = chatWidth;
-  }, [chatWidth]);
+    const preferencesToPersist: StoredEditorPreferences = {
+      showTerminal,
+      terminalHeight,
+      selectedRepo,
+      selectedBranch,
+    };
+
+    try {
+      window.localStorage.setItem(PREFERENCES_STORAGE_KEY, JSON.stringify(preferencesToPersist));
+    } catch (error) {
+      console.warn('Failed to persist editor preferences', error);
+    }
+  }, [showTerminal, terminalHeight, selectedRepo, selectedBranch]);
 
   const fetchRepos = useCallback(async () => {
     if (!token) return [] as any[];
@@ -160,7 +234,15 @@ const CodeEditor: React.FC = () => {
   }, [token, fetchRepos]);
 
   useEffect(() => {
-    if (selectedRepo && !repos.some((repo) => repo.fullName === selectedRepo)) {
+    if (!selectedRepo) {
+      return;
+    }
+
+    if (!repos || repos.length === 0) {
+      return;
+    }
+
+    if (!repos.some((repo) => repo.fullName === selectedRepo)) {
       setSelectedRepo('');
       setSelectedBranch('');
       setBranches([]);
@@ -203,6 +285,43 @@ const CodeEditor: React.FC = () => {
       lastSyncKeyRef.current = null;
     }
   }, []);
+
+  useEffect(() => {
+    if (!shouldHydrateSelectionRef.current) {
+      return;
+    }
+
+    if (!selectedRepo) {
+      shouldHydrateSelectionRef.current = false;
+      return;
+    }
+
+    if (!repos || repos.length === 0 || reposLoading || branchesLoading) {
+      return;
+    }
+
+    if (!repos.some((repo) => repo.fullName === selectedRepo)) {
+      setSelectedRepo('');
+      setSelectedBranch('');
+      setBranches([]);
+      shouldHydrateSelectionRef.current = false;
+      return;
+    }
+
+    (async () => {
+      try {
+        const branchNames = await handleRepoChange(selectedRepo);
+        const persistedBranch = storedPreferencesRef.current?.selectedBranch;
+        if (persistedBranch && branchNames.includes(persistedBranch)) {
+          setSelectedBranch(persistedBranch);
+        }
+      } catch (error) {
+        console.warn('Failed to hydrate stored repository selection', error);
+      } finally {
+        shouldHydrateSelectionRef.current = false;
+      }
+    })();
+  }, [branchesLoading, handleRepoChange, repos, reposLoading, selectedRepo]);
 
   const syncRepository = useCallback(async (repoFullName: string, branchName: string) => {
     console.log('🔄 syncRepository called:', { repoFullName, branchName });
@@ -569,10 +688,15 @@ const CodeEditor: React.FC = () => {
   };
 
   const handleFileCreate = (parentPath: string, name: string, type: 'file' | 'folder') => {
-    const fileName = name === 'new-file' ? 'untitled.js' : name === 'new-folder' ? 'untitled-folder' : name;
+    const effectiveParent = parentPath && parentPath !== '' ? parentPath : '/';
+    const defaultName = name && name.trim().length > 0
+      ? name.trim()
+      : type === 'file'
+        ? 'untitled.ts'
+        : 'untitled-folder';
     const content = type === 'file' ? '// New file\n' : undefined;
-    
-    createFile(parentPath, fileName, type, content);
+
+    createFile(effectiveParent, defaultName, type, content);
     toast.success(`${type === 'file' ? 'File' : 'Folder'} created successfully`);
   };
 
@@ -585,6 +709,73 @@ const CodeEditor: React.FC = () => {
     renameFile(filePath, newName);
     toast.success('File renamed successfully');
   };
+
+  const handleTabSelect = useCallback((filePath: string) => {
+    const fileNode = getFileByPath(filePath);
+    if (fileNode) {
+      selectFile(fileNode);
+    }
+  }, [getFileByPath, selectFile]);
+
+  const handleTabClose = useCallback((event: React.MouseEvent, filePath: string) => {
+    event.stopPropagation();
+    closeTab(filePath);
+  }, [closeTab]);
+
+  const copyTextToClipboard = useCallback(async (text: string) => {
+    if (typeof window === 'undefined') {
+      return false;
+    }
+
+    if (navigator?.clipboard?.writeText) {
+      try {
+        await navigator.clipboard.writeText(text);
+        return true;
+      } catch (error) {
+        console.warn('Clipboard write failed', error);
+      }
+    }
+
+    try {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.focus();
+      textarea.select();
+      const successful = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      return successful;
+    } catch (error) {
+      console.warn('Fallback clipboard copy failed', error);
+      return false;
+    }
+  }, []);
+
+  const handleCopyFile = useCallback(async (file: FileNode) => {
+    const success = await copyTextToClipboard(file.path);
+    if (success) {
+      toast.success(`Copied path for ${file.name}`);
+    } else {
+      toast.error('Unable to copy file path to clipboard');
+    }
+  }, [copyTextToClipboard]);
+
+  const handleCutFile = useCallback(async (file: FileNode) => {
+    const success = await copyTextToClipboard(file.path);
+    if (success) {
+      toast.success(`Marked ${file.name} for moving (path copied)`);
+    } else {
+      toast.error('Unable to cut file');
+    }
+  }, [copyTextToClipboard]);
+
+  const handleAddFileToChat = useCallback((file: FileNode) => {
+    selectFile(file);
+    setShowChat(true);
+    toast.success(`Added ${file.name} to chat context`);
+  }, [selectFile]);
 
   const handleEditorChange = (value: string | undefined) => {
     setEditorContent(value || '');
@@ -682,6 +873,9 @@ const CodeEditor: React.FC = () => {
               onRepoChange={handleRepoChange}
               onBranchChange={handleBranchChange}
               onRefreshRepos={fetchRepos}
+              onAddFileToChat={handleAddFileToChat}
+              onCopyFile={handleCopyFile}
+              onCutFile={handleCutFile}
             />
           </div>
           <div
@@ -747,6 +941,44 @@ const CodeEditor: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Open File Tabs */}
+        {openTabNodes.length > 0 && (
+          <div className="flex items-stretch bg-gray-900 border-b border-gray-800 overflow-x-auto" role="tablist">
+            {openTabNodes.map((tab) => {
+              const isActive = selectedFile?.path === tab.path;
+              return (
+                <button
+                  key={tab.path}
+                  onClick={() => handleTabSelect(tab.path)}
+                  role="tab"
+                  aria-selected={isActive}
+                  className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium border-r border-gray-800 border-b-2 transition-colors whitespace-nowrap ${
+                    isActive
+                      ? 'bg-gray-900 text-white border-blue-500'
+                      : 'bg-gray-900/70 text-gray-400 hover:text-white hover:bg-gray-800 border-transparent'
+                  }`}
+                >
+                  <span className="uppercase text-[10px] tracking-wide text-blue-300/80 group-hover:text-blue-200">
+                    {getLanguageLabel(tab.path)}
+                  </span>
+                  <span className="truncate max-w-[140px] text-left">
+                    {tab.name}
+                  </span>
+                  <span
+                    role="button"
+                    aria-label={`Close ${tab.name}`}
+                    className="ml-2 p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-white"
+                    onClick={(event) => handleTabClose(event, tab.path)}
+                    onMouseDown={(event) => event.stopPropagation()}
+                  >
+                    <XMarkIcon className="h-3.5 w-3.5" />
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Editor Content */}
         <div className="flex-1 flex flex-col">

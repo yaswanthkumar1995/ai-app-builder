@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon, ArrowPathIcon, CodeBracketIcon } from '@heroicons/react/24/outline';
 
 interface FileNode {
@@ -30,6 +30,9 @@ interface FileTreeProps {
   onRepoChange?: (repo: string) => void;
   onBranchChange?: (branch: string) => void;
   onRefreshRepos?: () => void;
+  onAddFileToChat?: (file: FileNode) => void;
+  onCopyFile?: (file: FileNode) => void;
+  onCutFile?: (file: FileNode) => void;
 }
 
 const FileTree: React.FC<FileTreeProps> = ({
@@ -50,11 +53,55 @@ const FileTree: React.FC<FileTreeProps> = ({
   onRepoChange,
   onBranchChange,
   onRefreshRepos,
+  onAddFileToChat,
+  onCopyFile,
+  onCutFile,
 }) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/']));
   const [editingFile, setEditingFile] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
   const [showPreview, setShowPreview] = useState(true);
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null);
+  const [pendingNewNodePath, setPendingNewNodePath] = useState<string | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const extensionBadgeMap: Record<string, { label: string; bg: string; text: string }> = {
+    ts: { label: 'TS', bg: 'bg-blue-500/20 border-blue-400/60', text: 'text-blue-200' },
+    tsx: { label: 'TSX', bg: 'bg-indigo-500/20 border-indigo-400/60', text: 'text-indigo-200' },
+    js: { label: 'JS', bg: 'bg-yellow-500/20 border-yellow-400/60', text: 'text-yellow-200' },
+    jsx: { label: 'JSX', bg: 'bg-yellow-500/20 border-yellow-400/60', text: 'text-yellow-200' },
+    json: { label: 'JSON', bg: 'bg-teal-500/20 border-teal-400/60', text: 'text-teal-200' },
+    css: { label: 'CSS', bg: 'bg-sky-500/20 border-sky-400/60', text: 'text-sky-200' },
+    scss: { label: 'SCSS', bg: 'bg-pink-500/20 border-pink-400/60', text: 'text-pink-200' },
+    md: { label: 'MD', bg: 'bg-purple-500/20 border-purple-400/60', text: 'text-purple-200' },
+    html: { label: 'HTML', bg: 'bg-orange-500/20 border-orange-400/60', text: 'text-orange-200' },
+    py: { label: 'PY', bg: 'bg-blue-500/20 border-blue-400/60', text: 'text-blue-200' },
+    sh: { label: 'SH', bg: 'bg-gray-500/20 border-gray-400/60', text: 'text-gray-200' },
+    sql: { label: 'SQL', bg: 'bg-emerald-500/20 border-emerald-400/60', text: 'text-emerald-200' },
+    yml: { label: 'YML', bg: 'bg-amber-500/20 border-amber-400/60', text: 'text-amber-200' },
+    yaml: { label: 'YML', bg: 'bg-amber-500/20 border-amber-400/60', text: 'text-amber-200' },
+    env: { label: 'ENV', bg: 'bg-lime-500/20 border-lime-400/60', text: 'text-lime-200' },
+  };
+
+  const renderFileBadge = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    const badge = extensionBadgeMap[ext];
+
+    if (!badge) {
+      return (
+        <div className="flex items-center justify-center border border-gray-600/60 bg-gray-700/40 text-gray-300 text-[10px] font-semibold uppercase rounded-sm px-1.5 py-0.5 leading-none mr-2 flex-shrink-0 min-w-[28px]">
+          <span>{ext ? ext.slice(0, 3) : 'TXT'}</span>
+        </div>
+      );
+    }
+
+    return (
+      <div className={`flex items-center justify-center border ${badge.bg} ${badge.text} text-[10px] font-semibold uppercase rounded-sm px-1.5 py-0.5 leading-none mr-2 flex-shrink-0 min-w-[28px]`}
+      >
+        <span>{badge.label}</span>
+      </div>
+    );
+  };
 
   const toggleFolder = (folderPath: string) => {
     const newExpanded = new Set(expandedFolders);
@@ -86,6 +133,133 @@ const FileTree: React.FC<FileTreeProps> = ({
       setEditingFile(null);
       setEditingName('');
     }
+  };
+
+  const closeContextMenu = () => setContextMenu(null);
+
+  const normalizePath = (path: string | null | undefined) => {
+    if (!path || path === '/') {
+      return '';
+    }
+    const trimmed = path.trim();
+    const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  return withLeadingSlash.replace(/\/+/g, '/').replace(/\/+$/, '');
+  };
+
+  const buildChildPath = (parent: string, name: string) => {
+    const sanitizedParent = normalizePath(parent);
+    const sanitizedName = (name || '').trim().replace(/[\\/]+/g, '-');
+    const effectiveName = sanitizedName.length > 0 ? sanitizedName : 'untitled';
+    const combined = `${sanitizedParent ? `${sanitizedParent}/` : ''}${effectiveName}`;
+    const normalized = combined.replace(/\/+/g, '/');
+    return normalized.startsWith('/') ? normalized : `/${normalized}`;
+  };
+
+  const expandToPath = (path: string) => {
+    const normalized = normalizePath(path);
+    const next = new Set(expandedFolders);
+    next.add('/');
+    if (!normalized) {
+      setExpandedFolders(next);
+      return;
+    }
+    const segments = normalized.split('/').filter(Boolean);
+    let current = '';
+    segments.forEach(segment => {
+      current += `/${segment}`;
+      next.add(current);
+    });
+    setExpandedFolders(next);
+  };
+
+  const determineCreationParent = () => {
+    if (!selectedFileNode) return '';
+    if (selectedFileNode.type === 'folder') {
+      return selectedFileNode.path;
+    }
+    const parentPath = selectedFileNode.path.split('/').slice(0, -1).join('/');
+    return parentPath;
+  };
+
+  const triggerCreateItem = (type: 'file' | 'folder') => {
+    const parentPath = determineCreationParent();
+    const fallbackParent = parentPath && parentPath !== '' ? parentPath : '/';
+    expandToPath(parentPath);
+
+    const defaultName = type === 'file' ? 'untitled.ts' : 'untitled-folder';
+    const newNodePath = buildChildPath(parentPath, defaultName);
+
+    onFileCreate(fallbackParent, defaultName, type);
+
+    if (type === 'folder') {
+      setExpandedFolders((prev) => {
+        const next = new Set(prev);
+        next.add(newNodePath);
+        return next;
+      });
+    }
+
+    setPendingNewNodePath(newNodePath);
+  };
+
+  useEffect(() => {
+    if (!contextMenu) return;
+
+    const handleGlobalClick = (event: MouseEvent) => {
+      if (contextMenuRef.current && contextMenuRef.current.contains(event.target as Node)) {
+        return;
+      }
+      closeContextMenu();
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        closeContextMenu();
+      }
+    };
+
+    const handleScroll = () => closeContextMenu();
+
+    window.addEventListener('click', handleGlobalClick);
+    window.addEventListener('contextmenu', handleGlobalClick);
+    window.addEventListener('keydown', handleEscape);
+    window.addEventListener('scroll', handleScroll, true);
+
+    return () => {
+      window.removeEventListener('click', handleGlobalClick);
+      window.removeEventListener('contextmenu', handleGlobalClick);
+      window.removeEventListener('keydown', handleEscape);
+      window.removeEventListener('scroll', handleScroll, true);
+    };
+  }, [contextMenu]);
+
+  useEffect(() => {
+    if (!pendingNewNodePath) return;
+    const node = findFileNode(files, pendingNewNodePath);
+    if (node) {
+      setEditingFile(node.path);
+      setEditingName(node.name);
+      setPendingNewNodePath(null);
+    }
+  }, [files, pendingNewNodePath]);
+
+  const handleContextMenu = (event: React.MouseEvent, node: FileNode) => {
+    event.preventDefault();
+
+    if (node.type === 'file') {
+      onFileSelect(node);
+    }
+
+    const MENU_WIDTH = 200;
+    const MENU_HEIGHT = 180;
+    const adjustedX = Math.min(event.clientX, window.innerWidth - MENU_WIDTH);
+    const adjustedY = Math.min(event.clientY, window.innerHeight - MENU_HEIGHT);
+
+    setContextMenu({
+      x: adjustedX,
+      y: adjustedY,
+      node,
+    });
   };
 
   // Find the selected file node
@@ -131,6 +305,7 @@ const FileTree: React.FC<FileTreeProps> = ({
             isSelected ? 'bg-blue-600' : ''
           }`}
           style={{ paddingLeft: `${depth * 16 + 8}px` }}
+          onContextMenu={(event) => handleContextMenu(event, node)}
         >
           {node.type === 'folder' ? (
             <button
@@ -149,11 +324,15 @@ const FileTree: React.FC<FileTreeProps> = ({
 
           <div className="flex items-center flex-1 min-w-0">
             {node.type === 'folder' ? (
-              <FolderIcon className="h-4 w-4 text-blue-400 mr-2 flex-shrink-0" />
+              <FolderIcon
+                className={`h-4 w-4 mr-2 flex-shrink-0 transition-colors ${
+                  isExpanded ? 'text-yellow-300' : 'text-yellow-500/70'
+                }`}
+              />
             ) : (
-              <DocumentIcon className="h-4 w-4 text-gray-400 mr-2 flex-shrink-0" />
+              renderFileBadge(node.name)
             )}
-            
+
             {isEditing ? (
               <input
                 type="text"
@@ -213,14 +392,14 @@ const FileTree: React.FC<FileTreeProps> = ({
               </button>
             )}
             <button
-              onClick={() => onFileCreate('/', 'new-file', 'file')}
+              onClick={() => triggerCreateItem('file')}
               className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
               title="New file"
             >
               <PlusIcon className="h-4 w-4" />
             </button>
             <button
-              onClick={() => onFileCreate('/', 'new-folder', 'folder')}
+              onClick={() => triggerCreateItem('folder')}
               className="p-1 hover:bg-gray-700 rounded text-gray-400 hover:text-white"
               title="New folder"
             >
@@ -351,6 +530,67 @@ const FileTree: React.FC<FileTreeProps> = ({
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-50 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1"
+          style={{ top: contextMenu.y, left: contextMenu.x }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            onClick={() => {
+              closeContextMenu();
+              setTimeout(() => startEditing(contextMenu.node.path, contextMenu.node.name), 0);
+            }}
+          >
+            Rename
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            onClick={() => {
+              closeContextMenu();
+              onFileDelete(contextMenu.node.path);
+            }}
+          >
+            Delete
+          </button>
+          {contextMenu.node.type === 'file' && onAddFileToChat && (
+            <button
+              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+              onClick={() => {
+                closeContextMenu();
+                onAddFileToChat(contextMenu.node);
+              }}
+            >
+              Add file to chat
+            </button>
+          )}
+          <button
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            onClick={() => {
+              closeContextMenu();
+              if (onCopyFile) {
+                onCopyFile(contextMenu.node);
+              }
+            }}
+          >
+            Copy
+          </button>
+          <button
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            onClick={() => {
+              closeContextMenu();
+              if (onCutFile) {
+                onCutFile(contextMenu.node);
+              }
+            }}
+          >
+            Cut
+          </button>
         </div>
       )}
     </div>
