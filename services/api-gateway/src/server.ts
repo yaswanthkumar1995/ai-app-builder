@@ -36,8 +36,14 @@ app.use('/terminal', (req, res, next) => {
   target: 'http://terminal-service:3004',
   changeOrigin: true,
   logLevel: 'debug',
+  timeout: 60000, // 60 second timeout for terminal operations
+  proxyTimeout: 60000,
   onProxyReq: (proxyReq, req, res) => {
     console.log('🚀 Proxying terminal request to:', proxyReq.getHeader('host'), proxyReq.path);
+    // Set longer timeout on the socket
+    if (proxyReq.socket) {
+      proxyReq.socket.setTimeout(60000);
+    }
   },
   onProxyRes: (proxyRes, req, res) => {
     console.log('✅ Terminal proxy response:', proxyRes.statusCode);
@@ -135,21 +141,27 @@ app.use('/api/terminal-sessions', createProxyMiddleware({
 app.use('/api/terminal', createProxyMiddleware({
   target: 'http://terminal-service:3004',
   changeOrigin: true,
-  pathRewrite: { '^/api/terminal': '/terminal' }
+  pathRewrite: { '^/api/terminal': '/terminal' },
+  timeout: 60000,
+  proxyTimeout: 60000
 }));
 
 // Git operations integrated with terminal service
 app.use('/api/git', createProxyMiddleware({
   target: 'http://terminal-service:3004',
   changeOrigin: true,
-  pathRewrite: { '^/api/git': '/git' }
+  pathRewrite: { '^/api/git': '/git' },
+  timeout: 120000, // 2 minute timeout for git clone operations
+  proxyTimeout: 120000
 }));
 
 // Workspace state management
 app.use('/api/workspace', createProxyMiddleware({
   target: 'http://terminal-service:3004',
   changeOrigin: true,
-  pathRewrite: { '^/api/workspace': '/workspace' }
+  pathRewrite: { '^/api/workspace': '/workspace' },
+  timeout: 30000,
+  proxyTimeout: 30000
 }));
 
 // AI-driven git operations

@@ -1040,8 +1040,10 @@ app.get('/github/status', async (req, res) => {
     // Test the connection by making a simple API call
     try {
       let accessToken = githubSettings.apiKey;
-      if (accessToken === installationId && installationId) {
-        // Refresh installation token
+      
+      // For GitHub App, always generate fresh token
+      if (appType === 'github_app' && installationId) {
+        logger.info('Generating fresh installation access token for status check', { installationId });
         const tokenResponse = await axios.post(`https://api.github.com/app/installations/${installationId}/access_tokens`, {}, {
           headers: {
             'Authorization': `Bearer ${await generateJWT()}`,
@@ -1124,21 +1126,20 @@ app.get('/auth/github/repos', async (req, res) => {
     let repos = [];
     
     if (appType === 'github_app' && installationId) {
-      // For GitHub App, list installation repositories
+      // For GitHub App, always generate a fresh installation access token
       try {
-        // First, try to use the stored token (if it's still valid)
-        let accessToken = githubToken;
-        if (githubToken === installationId) {
-          // Token is actually installation_id, generate new access token
-          const tokenResponse = await axios.post(`https://api.github.com/app/installations/${installationId}/access_tokens`, {}, {
-            headers: {
-              'Authorization': `Bearer ${await generateJWT()}`,
-              'Accept': 'application/vnd.github.v3+json',
-              'User-Agent': 'AI-Code-Platform'
-            }
-          });
-          accessToken = tokenResponse.data.token;
-        }
+        logger.info('Generating fresh installation access token', { installationId });
+        
+        const tokenResponse = await axios.post(`https://api.github.com/app/installations/${installationId}/access_tokens`, {}, {
+          headers: {
+            'Authorization': `Bearer ${await generateJWT()}`,
+            'Accept': 'application/vnd.github.v3+json',
+            'User-Agent': 'AI-Code-Platform'
+          }
+        });
+        const accessToken = tokenResponse.data.token;
+        
+        logger.info('Successfully generated fresh installation access token');
 
         const ghResp = await axios.get(`https://api.github.com/installation/repositories?per_page=100`, {
           headers: { 
@@ -1158,22 +1159,11 @@ app.get('/auth/github/repos', async (req, res) => {
           sshUrl: r.ssh_url,
           updatedAt: r.updated_at
         }));
-      } catch (appError) {
-        logger.error('GitHub App repos error:', appError);
-        // Fallback to user repos endpoint
-        const ghResp = await axios.get('https://api.github.com/user/repos?per_page=100&sort=updated', {
-          headers: { Authorization: `token ${githubToken}`, 'User-Agent': 'AI-Code-Platform' }
-        });
-        repos = ghResp.data.map((r: any) => ({
-          id: r.id,
-          name: r.name,
-          fullName: r.full_name,
-          private: r.private,
-          defaultBranch: r.default_branch,
-          cloneUrl: r.clone_url,
-          sshUrl: r.ssh_url,
-          updatedAt: r.updated_at
-        }));
+        
+        logger.info(`Successfully fetched ${repos.length} repositories`);
+      } catch (appError: any) {
+        logger.error('GitHub App repos error:', appError?.response?.data || appError?.message);
+        throw appError; // Re-throw to be caught by outer catch block
       }
     } else {
       // For OAuth App, list user repositories
@@ -1203,25 +1193,49 @@ app.get('/auth/github/repos', async (req, res) => {
 app.get('/auth/github/branches', async (req, res) => {
   try {
     const { repo } = req.query; // expects full name owner/repo
-    if (!repo || typeof repo !== 'string') return res.status(400).json({ error: 'repo query param required (owner/repo)' });
+    logger.info('Fetching branches for repo:', { repo });
+    
+    if (!repo || typeof repo !== 'string') {
+      logger.error('List branches error: Missing or invalid repo parameter');
+      return res.status(400).json({ error: 'repo query param required (owner/repo)' });
+    }
+    
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    if (!authHeader?.startsWith('Bearer ')) {
+      logger.error('List branches error: No authorization header');
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    
     const jwtToken = authHeader.substring(7);
     const decoded = jwt.verify(jwtToken, process.env.JWT_SECRET || 'default-secret') as any;
+    
+    if (!decoded || !decoded.id) {
+      logger.error('List branches error: Invalid JWT token');
+      return res.status(401).json({ error: 'Unauthorized - Invalid token' });
+    }
+    
+    logger.info('Fetching GitHub settings for branches', { userId: decoded.id, repo });
     
     const settingsResp = await axios.get(`${process.env.DATABASE_SERVICE_URL || 'http://database-service:3003'}/settings/providers`, {
       headers: { 'x-user-id': decoded.id }
     });
     const githubSettings = settingsResp.data?.github || {};
     const githubToken = githubSettings.apiKey || '';
+    const appType = githubSettings.app_type || 'oauth_app';
     const installationId = githubSettings.installation_id;
     
-    if (!githubToken) return res.status(400).json({ error: 'GitHub not connected' });
+    logger.info('GitHub settings for branches', { hasToken: !!githubToken, appType, repo });
+    
+    if (!githubToken) {
+      logger.error('List branches error: GitHub not connected');
+      return res.status(400).json({ error: 'GitHub not connected' });
+    }
 
-    // Handle GitHub App token refresh if needed
+    // For GitHub App, always generate fresh installation access token
     let accessToken = githubToken;
-    if (githubToken === installationId && installationId) {
+    if (appType === 'github_app' && installationId) {
       try {
+        logger.info('Generating fresh installation access token for branches', { installationId });
         const tokenResponse = await axios.post(`https://api.github.com/app/installations/${installationId}/access_tokens`, {}, {
           headers: {
             'Authorization': `Bearer ${await generateJWT()}`,
@@ -1230,11 +1244,15 @@ app.get('/auth/github/branches', async (req, res) => {
           }
         });
         accessToken = tokenResponse.data.token;
-      } catch (tokenError) {
-        logger.error('Failed to refresh GitHub App token:', tokenError);
+        logger.info('Successfully generated fresh token for branches');
+      } catch (tokenError: any) {
+        logger.error('Failed to refresh GitHub App token:', tokenError?.response?.data || tokenError?.message);
+        throw tokenError;
       }
     }
 
+    logger.info('Fetching branches from GitHub API', { repo, url: `https://api.github.com/repos/${repo}/branches` });
+    
     const ghResp = await axios.get(`https://api.github.com/repos/${repo}/branches?per_page=200`, {
       headers: { 
         Authorization: `token ${accessToken}`, 
@@ -1242,10 +1260,17 @@ app.get('/auth/github/branches', async (req, res) => {
         'User-Agent': 'AI-Code-Platform' 
       }
     });
+    
     const branches = ghResp.data.map((b: any) => ({ name: b.name, protected: b.protected }));
+    logger.info('Successfully fetched branches', { repo, count: branches.length });
     res.json({ branches });
   } catch (e:any) {
-    logger.error('List branches error:', e.response?.data || e.message);
+    logger.error('List branches error:', { 
+      repo: req.query.repo,
+      error: e.response?.data || e.message,
+      status: e.response?.status,
+      statusText: e.response?.statusText
+    });
     res.status(500).json({ error: 'Failed to list branches' });
   }
 });

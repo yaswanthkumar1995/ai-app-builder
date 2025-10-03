@@ -123,7 +123,10 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
+
+// Increase server timeout
+server.setTimeout(120000); // 2 minute timeout
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -146,6 +149,25 @@ app.post('/terminal/create-session', async (req, res) => {
     console.log(`REST: Creating terminal session for user: ${userId}`);
     if (workspacePath) {
       console.log(`Using workspace path: ${workspacePath}`);
+    }
+    
+    // Check if session already exists and is valid
+    const existingSession = userSessions.get(userId);
+    if (existingSession && existingSession.ptyProcess && !existingSession.ptyProcess.killed) {
+      console.log(`REST: Reusing existing terminal session for user: ${userId}`);
+      return res.json({
+        success: true,
+        id: existingSession.sessionId,
+        userId: userId,
+        projectId: projectId,
+        sessionId: existingSession.sessionId,
+        status: 'active',
+        workingDirectory: existingSession.workingDir,
+        environment: {},
+        createdAt: existingSession.createdAt,
+        updatedAt: existingSession.createdAt,
+        lastAccessedAt: new Date().toISOString()
+      });
     }
     
     const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);
@@ -261,7 +283,7 @@ app.post('/git/clone', async (req, res) => {
     const git = simpleGit(workspacePath);
 
     const cloneRepository = async () => {
-      await git.clone(authRepoUrl, projectPath, ['--branch', branch, '--single-branch']);
+      await git.clone(authRepoUrl, projectPath, ['--depth', '1', '--single-branch', '--branch', branch]);
       const projectGit = simpleGit(projectPath);
       await projectGit.checkout(branch);
     };
@@ -510,6 +532,122 @@ app.get('/workspace/state/:userId', (req, res) => {
     });
   } catch (error) {
     console.error('Error getting workspace state:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// List files in workspace
+app.get('/workspace/files/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const sessionInfo = userSessions.get(userId);
+    
+    if (!sessionInfo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Terminal session not found'
+      });
+    }
+
+    const workspacePath = sessionInfo.workingDir;
+    
+    if (!fs.existsSync(workspacePath)) {
+      return res.json({
+        success: true,
+        files: []
+      });
+    }
+
+    const buildFileTree = (dirPath, relativePath = '') => {
+      const items = [];
+      const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+
+      for (const entry of entries) {
+        // Skip hidden files and common directories to ignore
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') {
+          continue;
+        }
+
+        const fullPath = path.join(dirPath, entry.name);
+        const relPath = relativePath ? `${relativePath}/${entry.name}` : entry.name;
+
+        if (entry.isDirectory()) {
+          const children = buildFileTree(fullPath, relPath);
+          items.push({
+            name: entry.name,
+            path: relPath,
+            type: 'folder',
+            children
+          });
+        } else {
+          items.push({
+            name: entry.name,
+            path: relPath,
+            type: 'file'
+          });
+        }
+      }
+
+      return items;
+    };
+
+    const files = buildFileTree(workspacePath);
+
+    res.json({
+      success: true,
+      files
+    });
+  } catch (error) {
+    console.error('Error listing workspace files:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+// Read file content from workspace
+app.get('/workspace/file/:userId/*', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const filePath = req.params[0]; // Everything after /workspace/file/:userId/
+    
+    const sessionInfo = userSessions.get(userId);
+    if (!sessionInfo) {
+      return res.status(404).json({
+        success: false,
+        error: 'Terminal session not found'
+      });
+    }
+
+    const fullPath = path.join(sessionInfo.workingDir, filePath);
+    
+    // Security check: ensure the path is within workspace
+    if (!fullPath.startsWith(sessionInfo.workingDir)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Access denied'
+      });
+    }
+
+    if (!fs.existsSync(fullPath)) {
+      return res.status(404).json({
+        success: false,
+        error: 'File not found'
+      });
+    }
+
+    const content = await fsPromises.readFile(fullPath, 'utf8');
+
+    res.json({
+      success: true,
+      content
+    });
+  } catch (error) {
+    console.error('Error reading file:', error);
     res.status(500).json({
       success: false,
       error: error.message

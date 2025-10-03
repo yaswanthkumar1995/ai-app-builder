@@ -208,4 +208,38 @@ export class GitOperations {
 
     return await response.json();
   }
+
+  // Get workspace files
+  async getWorkspaceFiles() {
+    const response = await fetch(`${config.apiGatewayUrl}/api/workspace/files/${this.userId}`, {
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get workspace files');
+    }
+
+    const data = await response.json();
+    return data.files || [];
+  }
+
+  // Get file content
+  async getFileContent(filePath: string) {
+    const response = await fetch(`${config.apiGatewayUrl}/api/workspace/file/${this.userId}/${filePath}`, {
+      headers: {
+        'Authorization': `Bearer ${this.token}`,
+      }
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to get file content');
+    }
+
+    const data = await response.json();
+    return data.content || '';
+  }
 }

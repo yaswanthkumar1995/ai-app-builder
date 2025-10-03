@@ -31,6 +31,7 @@ const CodeEditor: React.FC = () => {
     deleteFile,
     renameFile,
     restructureCurrentProject,
+    createProject,
   } = useProjectStore();
 
   const [editorContent, setEditorContent] = useState(selectedFile?.content || '');
@@ -188,35 +189,55 @@ const CodeEditor: React.FC = () => {
   }, []);
 
   const syncRepository = useCallback(async (repoFullName: string, branchName: string) => {
+    console.log('🔄 syncRepository called:', { repoFullName, branchName });
+    
     const gitOps = gitOpsRef.current;
     if (!gitOps || !user?.id) {
-      throw new Error('You must be signed in to sync repositories');
+      const error = 'You must be signed in to sync repositories';
+      console.error('❌ Sync failed - not authenticated:', { hasGitOps: !!gitOps, userId: user?.id });
+      throw new Error(error);
     }
 
     const repo = repos.find((r) => r.fullName === repoFullName);
     if (!repo) {
+      console.error('❌ Sync failed - repository not found:', { repoFullName, availableRepos: repos.map(r => r.fullName) });
       throw new Error('Repository not found');
     }
+
+    console.log('✅ Repository found:', { name: repo.name, cloneUrl: repo.cloneUrl });
 
     try {
       setSyncingRepo(true);
       setSyncState('syncing');
       setSyncMessage(`Syncing ${repo.name} (${branchName})…`);
 
+      console.log('📡 Ensuring terminal session...');
       await gitOps.ensureTerminalSession(undefined, user.email);
+      console.log('✅ Terminal session ready');
 
       let workspaceState: any = null;
       try {
+        console.log('📡 Getting workspace state...');
         workspaceState = await gitOps.getWorkspaceState();
+        console.log('✅ Workspace state:', workspaceState);
       } catch (workspaceError) {
-        console.warn('Workspace state unavailable, continuing with sync', workspaceError);
+        console.warn('⚠️ Workspace state unavailable, continuing with sync', workspaceError);
       }
 
       const normalize = (url?: string) => normalizeRepoIdentifier(url || '');
       const targetRepoId = normalize(repo.cloneUrl || repo.sshUrl);
       const currentRepoId = normalize(workspaceState?.repoUrl);
+      
+      console.log('🔍 Checking if clone needed:', { 
+        targetRepoId, 
+        currentRepoId,
+        needsClone: !currentRepoId || currentRepoId !== targetRepoId,
+        currentBranch: workspaceState?.currentBranch,
+        targetBranch: branchName
+      });
 
       if (!currentRepoId || currentRepoId !== targetRepoId) {
+        console.log('🚀 Cloning repository:', { repoUrl: repo.cloneUrl, branch: branchName });
         await gitOps.executeGitOperation({
           type: 'clone',
           repoUrl: repo.cloneUrl,
@@ -224,16 +245,48 @@ const CodeEditor: React.FC = () => {
           userId: user.id,
           projectName: repo.name,
         });
+        console.log('✅ Clone completed successfully');
       } else if (workspaceState?.currentBranch !== branchName) {
+        console.log('🔀 Checking out branch:', branchName);
         await gitOps.executeGitOperation({
           type: 'checkout',
           branch: branchName,
           userId: user.id,
         });
+        console.log('✅ Checkout completed successfully');
+      } else {
+        console.log('ℹ️ Repository already on correct branch, skipping clone/checkout');
+      }
+
+      // Load files from workspace
+      console.log('📂 Loading workspace files...');
+      const files = await gitOps.getWorkspaceFiles();
+      console.log('✅ Workspace files loaded:', files.length, 'items');
+      
+      // Create or update project with files
+      if (files && files.length > 0) {
+        const projectName = repo.name;
+        const existingProject = currentProject;
+        
+        if (!existingProject || existingProject.githubRepo !== repoFullName || existingProject.githubBranch !== branchName) {
+          // Create new project with GitHub files
+          console.log('🆕 Creating project with GitHub files');
+          createProject(
+            projectName,
+            `Cloned from ${repoFullName}`,
+            {
+              repo: repoFullName,
+              branch: branchName,
+              files: files,
+              workspacePath: workspaceState?.workspacePath
+            }
+          );
+        }
       }
 
       setSyncState('success');
       setSyncMessage(`Ready on ${repo.name}:${branchName}`);
+      console.log('✅ Sync completed successfully');
       toast.success(`Workspace synced with ${repo.name} (${branchName})`);
     } catch (error: any) {
       console.error('Repository sync failed', error);
@@ -245,7 +298,7 @@ const CodeEditor: React.FC = () => {
     } finally {
       setSyncingRepo(false);
     }
-  }, [repos, user]);
+  }, [repos, user, currentProject, createProject]);
 
   useEffect(() => {
     const hydrateWorkspaceSelection = async () => {
@@ -279,26 +332,31 @@ const CodeEditor: React.FC = () => {
 
   useEffect(() => {
     if (!selectedRepo || !selectedBranch || reposLoading || branchesLoading) {
+      console.log('Skipping sync:', { selectedRepo, selectedBranch, reposLoading, branchesLoading });
       return;
     }
 
     const syncKey = `${selectedRepo}:${selectedBranch}`;
     if (lastSyncKeyRef.current === syncKey || syncInFlightRef.current) {
+      console.log('Skipping sync - already synced or in progress:', { syncKey, lastSync: lastSyncKeyRef.current, inFlight: syncInFlightRef.current });
       return;
     }
 
+    console.log('Starting repository sync:', { selectedRepo, selectedBranch });
     syncInFlightRef.current = true;
     syncRepository(selectedRepo, selectedBranch)
       .then(() => {
+        console.log('Repository sync successful:', syncKey);
         lastSyncKeyRef.current = syncKey;
       })
-      .catch(() => {
+      .catch((error) => {
+        console.error('Repository sync failed:', error);
         // keep lastSyncKeyRef null to allow retries on next change
       })
       .finally(() => {
         syncInFlightRef.current = false;
       });
-  }, [selectedRepo, selectedBranch, reposLoading, branchesLoading]);
+  }, [selectedRepo, selectedBranch, reposLoading, branchesLoading, syncRepository]);
 
   useEffect(() => {
     if (selectedFile) {
