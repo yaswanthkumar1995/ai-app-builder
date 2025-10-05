@@ -54,6 +54,7 @@ app.use('/terminal', (req, res, next) => {
 }));
 
 // Auth routes (no auth middleware needed, no rate limiting)
+// Updated to maintain consistent routing with auth-service
 app.use('/api/auth', (req, res, next) => {
   console.log('Auth request received:', req.method, req.url);
   next();
@@ -61,7 +62,9 @@ app.use('/api/auth', (req, res, next) => {
   target: process.env.AUTH_SERVICE_URL || 'http://auth-service:3001',
   changeOrigin: true,
   pathRewrite: {
-    '^/api': ''
+    // pathRewrite receives the full path /api/auth/*, not the stripped path
+    // Replace /api with /auth to get /auth/auth/*, then simplify to /auth/*
+    '^/api/auth': '/auth'
   },
   onProxyReq: (proxyReq, req, res) => {
     console.log('Proxying request to:', proxyReq.getHeader('host'), proxyReq.path);

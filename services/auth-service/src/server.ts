@@ -127,7 +127,7 @@ const sendVerificationEmail = async (email: string, name: string, token: string)
 };
 
 // Routes
-app.post('/register', async (req, res) => {
+app.post('/auth/register', async (req, res) => {
   try {
     const { email, password, name } = registerSchema.parse(req.body);
 
@@ -187,7 +187,7 @@ app.post('/register', async (req, res) => {
   }
 });
 
-app.post('/login', async (req, res) => {
+app.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = loginSchema.parse(req.body);
 
@@ -242,7 +242,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
-app.post('/refresh', async (req, res) => {
+app.post('/auth/refresh', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -282,7 +282,7 @@ app.post('/refresh', async (req, res) => {
   }
 });
 
-app.get('/verify', async (req, res) => {
+app.get('/auth/verify', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -326,7 +326,7 @@ app.get('/verify', async (req, res) => {
 });
 
 // Email verification route
-app.post('/verify-email', async (req, res) => {
+app.post('/auth/verify-email', async (req, res) => {
   try {
     const { token } = req.body;
 
@@ -380,7 +380,7 @@ app.post('/verify-email', async (req, res) => {
 });
 
 // Resend verification email route
-app.post('/resend-verification', async (req, res) => {
+app.post('/auth/resend-verification', async (req, res) => {
   try {
     const { email } = req.body;
 
@@ -523,7 +523,7 @@ const getUserInstallations = async (userId: string): Promise<{
 };
 
 // GitHub connect route (supports both modes)
-app.get('/github', async (req, res) => {
+app.get('/auth/github', async (req, res) => {
   try {
     if (!GITHUB_CLIENT_ID || !GITHUB_CLIENT_SECRET) {
       return res.status(500).json({ error: 'GitHub credentials not configured' });
@@ -801,7 +801,7 @@ app.get(['/github/callback','/callback'], async (req, res) => {
 
 // Debug endpoint (secured via env toggle) to inspect stored state (DO NOT enable in prod without protection)
 if (GITHUB_DEBUG) {
-  app.get('/github/debug-state', (req, res) => {
+  app.get('/auth/github/debug-state', (req, res) => {
     const state = req.query.state as string | undefined;
     if (state) {
       return res.json({ state, data: githubAuthStates.get(state) || null });
@@ -812,7 +812,7 @@ if (GITHUB_DEBUG) {
 // (Old callback tail removed by refactor above – duplicate code cleaned)
 
 // GitHub disconnect route
-app.post('/github/disconnect', async (req, res) => {
+app.post('/auth/github/disconnect', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -848,7 +848,7 @@ app.post('/github/disconnect', async (req, res) => {
 });
 
 // Manual reconnection endpoint for existing installations
-app.post('/github/reconnect', async (req, res) => {
+app.post('/auth/github/reconnect', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -1008,7 +1008,7 @@ app.post('/github/reconnect', async (req, res) => {
 });
 
 // Check GitHub App connection status
-app.get('/github/status', async (req, res) => {
+app.get('/auth/github/status', async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
