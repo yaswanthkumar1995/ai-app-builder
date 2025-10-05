@@ -64,6 +64,14 @@ const FileTree: React.FC<FileTreeProps> = ({
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null);
   const [pendingNewNodePath, setPendingNewNodePath] = useState<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
+  
+  // Search states for repo and branch
+  const [repoSearchTerm, setRepoSearchTerm] = useState('');
+  const [branchSearchTerm, setBranchSearchTerm] = useState('');
+  const [showRepoDropdown, setShowRepoDropdown] = useState(false);
+  const [showBranchDropdown, setShowBranchDropdown] = useState(false);
+  const repoDropdownRef = useRef<HTMLDivElement | null>(null);
+  const branchDropdownRef = useRef<HTMLDivElement | null>(null);
 
   const extensionBadgeMap: Record<string, { label: string; bg: string; text: string }> = {
     ts: { label: 'TS', bg: 'bg-blue-500/20 border-blue-400/60', text: 'text-blue-200' },
@@ -202,6 +210,23 @@ const FileTree: React.FC<FileTreeProps> = ({
     setPendingNewNodePath(newNodePath);
   };
 
+  // Filter repos and branches based on search
+  const filteredRepos = repos.filter(r => 
+    r.name.toLowerCase().includes(repoSearchTerm.toLowerCase()) ||
+    r.fullName.toLowerCase().includes(repoSearchTerm.toLowerCase())
+  );
+  
+  const filteredBranches = branches.filter(b => 
+    b.toLowerCase().includes(branchSearchTerm.toLowerCase())
+  );
+
+  // Get display name for selected repo
+  const getRepoDisplayName = () => {
+    if (!selectedRepo) return 'Select repository';
+    const repo = repos.find(r => r.fullName === selectedRepo);
+    return repo ? repo.name : selectedRepo;
+  };
+
   useEffect(() => {
     if (!contextMenu) return;
 
@@ -232,6 +257,23 @@ const FileTree: React.FC<FileTreeProps> = ({
       window.removeEventListener('scroll', handleScroll, true);
     };
   }, [contextMenu]);
+
+  // Handle clicks outside dropdown
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (repoDropdownRef.current && !repoDropdownRef.current.contains(event.target as Node)) {
+        setShowRepoDropdown(false);
+        setRepoSearchTerm('');
+      }
+      if (branchDropdownRef.current && !branchDropdownRef.current.contains(event.target as Node)) {
+        setShowBranchDropdown(false);
+        setBranchSearchTerm('');
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (!pendingNewNodePath) return;
@@ -418,44 +460,117 @@ const FileTree: React.FC<FileTreeProps> = ({
         {/* Repository and Branch side by side */}
         <div className="space-y-2">
           <div className="flex gap-2">
-            {/* Repository */}
-            <div className="flex flex-col flex-1">
-              <select
-                className="bg-gray-700 text-sm text-white rounded px-2 py-1.5 focus:outline-none border border-gray-600 w-full"
-                value={selectedRepo}
-                onChange={(e) => onRepoChange?.(e.target.value)}
+            {/* Repository Searchable Dropdown */}
+            <div className="flex flex-col flex-1 relative" ref={repoDropdownRef}>
+              <button
+                className="bg-gray-700 text-sm text-white rounded px-2 py-1.5 focus:outline-none border border-gray-600 w-full text-left flex items-center justify-between"
+                onClick={() => !reposLoading && setShowRepoDropdown(!showRepoDropdown)}
                 disabled={reposLoading}
               >
-                <option value="">{reposLoading ? 'Loading…' : 'Repository'}</option>
-                {repos.map((r) => (
-                  <option key={r.id} value={r.fullName}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
+                <span className="truncate">{reposLoading ? 'Loading…' : getRepoDisplayName()}</span>
+                <svg className="h-4 w-4 flex-shrink-0 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {showRepoDropdown && !reposLoading && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-50 max-h-64 overflow-hidden flex flex-col">
+                  {/* Search Input */}
+                  <div className="p-2 border-b border-gray-600">
+                    <input
+                      type="text"
+                      placeholder="Search repositories..."
+                      value={repoSearchTerm}
+                      onChange={(e) => setRepoSearchTerm(e.target.value)}
+                      className="w-full bg-gray-800 text-white text-xs px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
+                      autoFocus
+                    />
+                  </div>
+                  
+                  {/* Dropdown List */}
+                  <div className="overflow-y-auto max-h-48">
+                    {filteredRepos.length === 0 ? (
+                      <div className="px-2 py-2 text-xs text-gray-400">No repositories found</div>
+                    ) : (
+                      filteredRepos.map((r) => (
+                        <button
+                          key={r.id}
+                          className={`w-full text-left px-2 py-1.5 text-xs hover:bg-gray-600 ${
+                            selectedRepo === r.fullName ? 'bg-blue-600 text-white' : 'text-gray-200'
+                          }`}
+                          onClick={() => {
+                            onRepoChange?.(r.fullName);
+                            setShowRepoDropdown(false);
+                            setRepoSearchTerm('');
+                          }}
+                        >
+                          <div className="truncate">{r.name}</div>
+                          {r.fullName !== r.name && (
+                            <div className="text-[10px] text-gray-400 truncate">{r.fullName}</div>
+                          )}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Branch */}
-            <div className="flex flex-col flex-1">
-              <select
-                className="bg-gray-700 text-sm text-white rounded px-2 py-1.5 focus:outline-none border border-gray-600 w-full"
-                value={selectedBranch}
-                onChange={(e) => onBranchChange?.(e.target.value)}
+            {/* Branch Searchable Dropdown */}
+            <div className="flex flex-col flex-1 relative" ref={branchDropdownRef}>
+              <button
+                className="bg-gray-700 text-sm text-white rounded px-2 py-1.5 focus:outline-none border border-gray-600 w-full text-left flex items-center justify-between"
+                onClick={() => !branchesLoading && selectedRepo && setShowBranchDropdown(!showBranchDropdown)}
                 disabled={!selectedRepo || branchesLoading}
               >
-                <option value="">
+                <span className="truncate">
                   {branchesLoading
                     ? 'Loading…'
-                    : branches.length
-                      ? 'Branch'
-                      : branchError || 'No branches'}
-                </option>
-                {branches.map((b) => (
-                  <option key={b} value={b}>
-                    {b}
-                  </option>
-                ))}
-              </select>
+                    : selectedBranch || (branches.length ? 'Select branch' : branchError || 'No branches')}
+                </span>
+                <svg className="h-4 w-4 flex-shrink-0 ml-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+              
+              {showBranchDropdown && !branchesLoading && selectedRepo && (
+                <div className="absolute top-full left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-50 max-h-64 overflow-hidden flex flex-col">
+                  {/* Search Input */}
+                  <div className="p-2 border-b border-gray-600">
+                    <input
+                      type="text"
+                      placeholder="Search branches..."
+                      value={branchSearchTerm}
+                      onChange={(e) => setBranchSearchTerm(e.target.value)}
+                      className="w-full bg-gray-800 text-white text-xs px-2 py-1 rounded border border-gray-600 focus:outline-none focus:border-blue-500"
+                      autoFocus
+                    />
+                  </div>
+                  
+                  {/* Dropdown List */}
+                  <div className="overflow-y-auto max-h-48">
+                    {filteredBranches.length === 0 ? (
+                      <div className="px-2 py-2 text-xs text-gray-400">No branches found</div>
+                    ) : (
+                      filteredBranches.map((b) => (
+                        <button
+                          key={b}
+                          className={`w-full text-left px-2 py-1.5 text-xs hover:bg-gray-600 truncate ${
+                            selectedBranch === b ? 'bg-blue-600 text-white' : 'text-gray-200'
+                          }`}
+                          onClick={() => {
+                            onBranchChange?.(b);
+                            setShowBranchDropdown(false);
+                            setBranchSearchTerm('');
+                          }}
+                        >
+                          {b}
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
           

@@ -71,7 +71,7 @@ const Settings: React.FC = () => {
   const githubAccountLabel = settings.github.account_login || settings.github.account_name || user?.name || 'your GitHub account';
   const githubOrgLabel = settings.github.account_name && settings.github.account_name !== githubAccountLabel
     ? settings.github.account_name
-    : 'your personal repositories';
+    : githubAccountLabel;
 
   // Close dropdown when clicking outside
   useEffect(() => {

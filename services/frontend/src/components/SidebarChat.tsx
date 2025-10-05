@@ -22,7 +22,7 @@ interface Message {
 }
 
 interface ChatSettings {
-  provider: 'openai' | 'anthropic' | 'google' | 'auto';
+  provider: 'openai' | 'anthropic' | 'google' | 'auto' | 'openrouter' | 'ollama' | 'lmstudio' | 'azure';
   model: string;
   temperature: number;
   maxTokens: number;
@@ -56,19 +56,51 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
 
   const providerModels = {
     openai: [
+      { id: 'gpt-4o', name: 'GPT-4o' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
       { id: 'gpt-4', name: 'GPT-4' },
       { id: 'gpt-3.5-turbo', name: 'GPT-3.5 Turbo' },
     ],
     anthropic: [
       { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet' },
       { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' },
+      { id: 'claude-3-sonnet-20240229', name: 'Claude 3 Sonnet' },
+      { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku' },
     ],
     google: [
       { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
       { id: 'gemini-pro', name: 'Gemini Pro' },
     ],
     auto: [
       { id: 'auto-best', name: 'Auto Best' },
+      { id: 'auto-fast', name: 'Auto Fast' },
+    ],
+    openrouter: [
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Claude 3.5 Sonnet' },
+      { id: 'openai/gpt-4o', name: 'GPT-4o' },
+      { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5' },
+      { id: 'meta-llama/llama-3.1-405b-instruct', name: 'Llama 3.1 405B' },
+    ],
+    ollama: [
+      { id: 'llama3.1:405b', name: 'Llama 3.1 405B' },
+      { id: 'llama3.1:70b', name: 'Llama 3.1 70B' },
+      { id: 'llama3.1:8b', name: 'Llama 3.1 8B' },
+      { id: 'llama3.2', name: 'Llama 3.2' },
+      { id: 'mistral:7b', name: 'Mistral 7B' },
+      { id: 'codellama:13b', name: 'Code Llama 13B' },
+      { id: 'deepseek-coder:6.7b', name: 'DeepSeek Coder' },
+    ],
+    lmstudio: [
+      { id: 'local-model', name: 'Local Model' },
+      { id: 'llama-3.1-70b', name: 'Llama 3.1 70B' },
+      { id: 'mistral-7b', name: 'Mistral 7B' },
+    ],
+    azure: [
+      { id: 'gpt-4o', name: 'GPT-4o' },
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini' },
+      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo' },
+      { id: 'gpt-4', name: 'GPT-4' },
     ],
   };
 
@@ -165,7 +197,12 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
       <div className="p-3 border-b border-gray-700">
         <div className="flex items-center justify-between mb-2">
           <div className="text-xs text-gray-400">
-            {chatSettings.provider.toUpperCase()} - {providerModels[chatSettings.provider].find(m => m.id === chatSettings.model)?.name}
+            {chatSettings.provider === 'auto' ? 'Auto' :
+             chatSettings.provider === 'openrouter' ? 'OpenRouter' :
+             chatSettings.provider === 'ollama' ? 'Ollama' :
+             chatSettings.provider === 'lmstudio' ? 'LM Studio' :
+             chatSettings.provider === 'azure' ? 'Azure' :
+             chatSettings.provider.toUpperCase()} - {providerModels[chatSettings.provider].find((m: any) => m.id === chatSettings.model)?.name}
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -192,6 +229,10 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
                 <option value="openai">OpenAI</option>
                 <option value="anthropic">Anthropic</option>
                 <option value="google">Google</option>
+                <option value="ollama">Ollama (Local)</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="lmstudio">LM Studio (Local)</option>
+                <option value="azure">Azure OpenAI</option>
                 <option value="auto">Auto</option>
               </select>
             </div>

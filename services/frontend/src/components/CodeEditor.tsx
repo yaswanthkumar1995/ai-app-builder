@@ -959,9 +959,6 @@ const CodeEditor: React.FC = () => {
                       : 'bg-gray-900/70 text-gray-400 hover:text-white hover:bg-gray-800 border-transparent'
                   }`}
                 >
-                  <span className="uppercase text-[10px] tracking-wide text-blue-300/80 group-hover:text-blue-200">
-                    {getLanguageLabel(tab.path)}
-                  </span>
                   <span className="truncate max-w-[140px] text-left">
                     {tab.name}
                   </span>
