@@ -1467,16 +1467,25 @@ const terminalManager = new TerminalManager();
 
 // WebSocket connection handling
 io.on('connection', (socket) => {
-  console.log('🔌 Client connected:', socket.id);
-  console.log('🔧 Socket auth:', socket.handshake.auth);
-  console.log('🌐 Socket query:', socket.handshake.query);
-  console.log('📍 Client address:', socket.handshake.address);
+  const authUsername = typeof socket.handshake.auth?.username === 'string'
+    ? socket.handshake.auth.username
+    : undefined;
+  const hasUserId = Boolean(socket.handshake.auth?.userId);
+  console.log('🔌 Client connected:', socket.id, 'username:', authUsername || 'unknown', 'userId-present:', hasUserId);
+  if (socket.handshake.address) {
+    console.log('📍 Client address:', socket.handshake.address);
+  }
 
   socket.on('create-terminal', async (data) => {
     try {
-      console.log('📥 Received create-terminal request:', JSON.stringify(data));
-      const { userId, projectId, userEmail, workspacePath } = data;
-      console.log(`🚀 Creating PTY terminal for user: ${userId}`);
+      const { userId, projectId, workspacePath } = data;
+      const requestUsername = typeof data?.username === 'string' ? data.username : undefined;
+      console.log('📥 Received create-terminal request:', {
+        projectId: projectId ?? 'unknown',
+        workspacePath: workspacePath ?? 'default',
+        username: requestUsername || authUsername || 'unknown',
+        userIdPresent: Boolean(userId)
+      });
       if (workspacePath) {
         console.log(`📂 Using workspace path: ${workspacePath}`);
       }
@@ -1499,12 +1508,13 @@ io.on('connection', (socket) => {
         workspacePath
       );
       
+      console.log(`🚀 Creating PTY terminal for username: ${resolvedUsername}`);
+      
       // Set up PTY data streaming
       const ptyProcess = sessionInfo.ptyProcess;
       
-      ptyProcess.onData((data) => {
-        console.log('PTY Output:', JSON.stringify(data));
-        socket.emit('terminal-output', { data });
+      ptyProcess.onData((chunk) => {
+        socket.emit('terminal-output', { data: chunk });
       });
       
       ptyProcess.onExit((exitCode, signal) => {
@@ -1533,7 +1543,6 @@ io.on('connection', (socket) => {
     try {
       const { userId, sessionId, input, data: inputData } = data;
       const terminalInput = input || inputData; // Support both property names
-      console.log('Terminal Input received:', JSON.stringify(terminalInput), 'from userId:', userId, 'sessionId:', sessionId);
       terminalManager.writeToTerminal(userId, terminalInput);
     } catch (error) {
       console.error('Error writing to terminal:', error);

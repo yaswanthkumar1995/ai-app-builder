@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { config } from '../config';
 import { useAuthStore } from '../stores/authStore';
 import { useProjectStore } from '../stores/projectStore';
@@ -30,23 +30,9 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
   const [output, setOutput] = useState<string>('');
   const [containerId, setContainerId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
-  const [initialized, setInitialized] = useState(false);
   const terminalRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
-
-  useEffect(() => {
-    if (isVisible && !initialized) {
-      initializeTerminal();
-      setInitialized(true);
-    }
-    
-    return () => {
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-    };
-  }, [isVisible, initialized, currentProject?.id]);
+  const hasInitializedRef = useRef(false);
 
   useEffect(() => {
     if (terminalRef.current) {
@@ -61,41 +47,24 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
     }
   }, [activeSession]);
 
-  const initializeTerminal = async () => {
-    if (!user) return;
-
+  const connectToSocket = useCallback(() => {
     if (process.env.NODE_ENV === 'development') {
-      console.log('Initializing terminal for user:', user.id);
+      console.log('🔌 Connecting to terminal WebSocket…');
     }
-    setLoading(true);
-    setConnecting(true);
-    
-    // Connect directly to WebSocket - no REST API needed
-    connectToSocket();
-  };
 
-  const connectToSocket = () => {
-    console.log('🔌 Connecting to terminal WebSocket...');
-    console.log('🔧 Config:', config);
-    console.log('👤 User:', user);
-    console.log('🔑 Token:', token ? 'Present' : 'Missing');
-    
-    // Connect directly to terminal service on port 3004
-    const baseUrl = config.apiGatewayUrl.replace(/^https?:\/\//, '').split(':')[0];
-    const protocol = config.apiGatewayUrl.startsWith('https') ? 'https' : 'http';
-    const socketUrl = `${protocol}://${baseUrl}:3004`;
-    
-    console.log('✅ Terminal connecting to:', socketUrl);
-    console.log('🔧 Socket.IO options:', {
-      auth: { token: token ? 'Present' : 'Missing', userId: user?.id },
-      reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionAttempts: 5,
-      timeout: 10000,
-      transports: ['websocket', 'polling']
-    });
-    
-    const socket = io(socketUrl, {
+    let gatewayUrl: URL;
+    try {
+      gatewayUrl = new URL(config.apiGatewayUrl);
+    } catch {
+      gatewayUrl = new URL(window.location.origin);
+    }
+
+    const hostname = gatewayUrl.hostname || window.location.hostname;
+    // Socket.IO requires HTTP/HTTPS protocol, not WS/WSS - it handles the upgrade internally
+    const protocol = gatewayUrl.protocol === 'https:' ? 'https' : 'http';
+    const socketUrl = `${protocol}://${hostname}:3004`;
+
+    const socketOptions = {
       auth: {
         token,
         userId: user?.id,
@@ -105,8 +74,29 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
       reconnectionDelay: 1000,
       reconnectionAttempts: 5,
       timeout: 10000,
-      transports: ['websocket', 'polling']
-    });
+      // Start with polling to establish connection, then upgrade to websocket
+      transports: ['polling', 'websocket']
+    };
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('👤 Terminal user context:', {
+        username: user?.username ?? 'unknown'
+      });
+      console.log('✅ Terminal connecting to:', socketUrl);
+      console.log('🔧 Socket.IO options:', {
+        auth: {
+          username: user?.username ?? 'unknown',
+          token: token ? 'Present' : 'Missing'
+        },
+        reconnection: socketOptions.reconnection,
+        reconnectionDelay: socketOptions.reconnectionDelay,
+        reconnectionAttempts: socketOptions.reconnectionAttempts,
+        timeout: socketOptions.timeout,
+        transports: socketOptions.transports
+      });
+    }
+
+    const socket = io(socketUrl, socketOptions);
 
     socket.on('connect', () => {
       console.log('✅ Terminal WebSocket connected successfully');
@@ -117,7 +107,6 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
       socket.emit('create-terminal', {
         userId: user?.id,
         projectId: currentProject?.id,
-        userEmail: user?.email,
         ...(user?.username ? { username: user.username } : {}),
         workspacePath: currentProject?.workspacePath
       });
@@ -271,7 +260,53 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
     });
 
     socketRef.current = socket;
-  };
+  }, [
+    token,
+    user?.id,
+    user?.username,
+    currentProject?.id,
+    currentProject?.workspacePath
+  ]);
+
+  const initializeTerminal = useCallback(() => {
+    if (!user) {
+      return;
+    }
+
+    if (process.env.NODE_ENV === 'development') {
+      console.log('Initializing terminal for user:', user?.username ?? 'unknown');
+    }
+
+    hasInitializedRef.current = true;
+    setLoading(true);
+    setConnecting(true);
+
+    // Connect directly to WebSocket - no REST API needed
+    connectToSocket();
+  }, [user, connectToSocket]);
+
+  useEffect(() => {
+    if (!isVisible) {
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      hasInitializedRef.current = false;
+      return;
+    }
+
+    if (!hasInitializedRef.current) {
+      initializeTerminal();
+    }
+
+    return () => {
+      hasInitializedRef.current = false;
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+    };
+  }, [isVisible, currentProject?.id, initializeTerminal]);
 
   const handleInput = (input: string) => {
     if (socketRef.current && user && activeSession) {

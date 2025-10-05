@@ -21,9 +21,6 @@ const ContactPage: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     // Here you would typically send the data to your backend
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Form submitted:', formData);
-    }
     setSubmitted(true);
 
     // Reset form after 2 seconds
