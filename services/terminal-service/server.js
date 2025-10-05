@@ -414,10 +414,20 @@ app.post('/git/clone', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Git clone error:', error);
+    console.error('❌ Git clone error:', error);
+    
+    // Check for specific error types
+    let errorMessage = error.message;
+    if (error.message.includes('File name too long')) {
+      errorMessage = 'Repository contains files with names that are too long. This is usually caused by malformed GitHub Actions workflow files. Please fix the repository on GitHub.';
+    } else if (error.message.includes('pathspec') && error.message.includes('did not match')) {
+      errorMessage = 'The specified branch does not exist in the repository.';
+    }
+    
     res.status(500).json({
       success: false,
-      error: error.message
+      error: errorMessage,
+      details: error.message
     });
   }
 });
@@ -1299,14 +1309,18 @@ const terminalManager = new TerminalManager();
 
 // WebSocket connection handling
 io.on('connection', (socket) => {
-  console.log('Client connected:', socket.id);
+  console.log('🔌 Client connected:', socket.id);
+  console.log('🔧 Socket auth:', socket.handshake.auth);
+  console.log('🌐 Socket query:', socket.handshake.query);
+  console.log('📍 Client address:', socket.handshake.address);
 
   socket.on('create-terminal', async (data) => {
     try {
+      console.log('📥 Received create-terminal request:', JSON.stringify(data));
       const { userId, projectId, userEmail, workspacePath } = data;
-      console.log(`Creating PTY terminal for user: ${userId}`);
+      console.log(`🚀 Creating PTY terminal for user: ${userId}`);
       if (workspacePath) {
-        console.log(`Using workspace path: ${workspacePath}`);
+        console.log(`📂 Using workspace path: ${workspacePath}`);
       }
 
       const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);
@@ -1324,15 +1338,17 @@ io.on('connection', (socket) => {
         socket.emit('terminal-exit', { exitCode, signal });
       });
       
+      console.log('✅ Terminal session created successfully');
       socket.emit('terminal-created', {
         success: true,
         sessionId: sessionInfo.sessionId,
         username: sessionInfo.username,
         workingDir: sessionInfo.workingDir
       });
+      console.log('📤 Sent terminal-created event to client');
 
     } catch (error) {
-      console.error('Error creating terminal:', error);
+      console.error('❌ Error creating terminal:', error);
       socket.emit('terminal-error', {
         error: error.message
       });

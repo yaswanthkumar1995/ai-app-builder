@@ -105,10 +105,11 @@ app.use('/api/', (req, res, next) => {
 
 // Protected routes - apply auth middleware (excluding auth routes)
 app.use('/api', (req, res, next) => {
-  // Skip auth middleware for auth routes
+  // Skip auth middleware for auth routes only
   if (req.path.startsWith('/api/auth')) {
     return next();
   }
+  // Apply auth middleware to all other routes
   authMiddleware(req, res, next);
 });
 
