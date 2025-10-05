@@ -433,7 +433,7 @@ app.post('/git/clone', async (req, res) => {
 });
 app.post('/git/checkout', async (req, res) => {
   try {
-    const { branch, userId, create } = req.body;
+    const { branch, userId, create, projectId, userEmail } = req.body;
     if (!userId || !branch) {
       return res.status(400).json({ 
         success: false, 
@@ -448,12 +448,21 @@ app.post('/git/checkout', async (req, res) => {
       });
     }
 
-    const sessionInfo = userSessions.get(userId);
+    let sessionInfo = userSessions.get(userId);
+    
+    // If no session exists, create one
     if (!sessionInfo) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Terminal session not found for user' 
-      });
+      console.log(`📝 No session found for user ${userId}, creating one...`);
+      try {
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+        console.log(`✅ Session created for user ${userId}`);
+      } catch (error) {
+        console.error('❌ Failed to create session:', error);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create terminal session: ' + error.message
+        });
+      }
     }
 
     const git = simpleGit(sessionInfo.workingDir);
@@ -493,11 +502,14 @@ app.get('/git/status/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
     
-    const sessionInfo = userSessions.get(userId);
+    let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Terminal session not found for user' 
+      // If no session, return empty status instead of error
+      console.log(`⚠️ No session found for git status request from user ${userId}`);
+      return res.json({ 
+        success: true, 
+        status: null,
+        message: 'No active workspace session'
       });
     }
 
@@ -520,7 +532,7 @@ app.get('/git/status/:userId', async (req, res) => {
 
 app.post('/git/commit', async (req, res) => {
   try {
-    const { userId, message, files } = req.body;
+    const { userId, message, files, projectId, userEmail } = req.body;
     
     if (!userId || !message) {
       return res.status(400).json({ 
@@ -529,12 +541,17 @@ app.post('/git/commit', async (req, res) => {
       });
     }
 
-    const sessionInfo = userSessions.get(userId);
+    let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Terminal session not found for user' 
-      });
+      console.log(`📝 No session found for user ${userId}, creating one...`);
+      try {
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create terminal session: ' + error.message
+        });
+      }
     }
 
     const git = simpleGit(sessionInfo.workingDir);
@@ -568,7 +585,7 @@ app.post('/git/commit', async (req, res) => {
 
 app.post('/git/push', async (req, res) => {
   try {
-    const { userId, branch } = req.body;
+    const { userId, branch, projectId, userEmail } = req.body;
     
     if (!userId) {
       return res.status(400).json({ 
@@ -577,12 +594,17 @@ app.post('/git/push', async (req, res) => {
       });
     }
 
-    const sessionInfo = userSessions.get(userId);
+    let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      return res.status(404).json({ 
-        success: false, 
-        error: 'Terminal session not found for user' 
-      });
+      console.log(`📝 No session found for user ${userId}, creating one...`);
+      try {
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create terminal session: ' + error.message
+        });
+      }
     }
 
     const git = simpleGit(sessionInfo.workingDir);
