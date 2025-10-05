@@ -54,6 +54,12 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
     maxTokens: 2000,
   });
 
+  // States for local models
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [lmstudioModels, setLmstudioModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [customModelInput, setCustomModelInput] = useState('');
+
   const providerModels = {
     openai: [
       { id: 'gpt-4o', name: 'GPT-4o' },
@@ -108,8 +114,77 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
     scrollToBottom();
   }, [messages]);
 
+  // Fetch Ollama models when provider is selected
+  useEffect(() => {
+    if (chatSettings.provider === 'ollama') {
+      fetchOllamaModels();
+    } else if (chatSettings.provider === 'lmstudio') {
+      fetchLMStudioModels();
+    }
+  }, [chatSettings.provider]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  const fetchOllamaModels = async () => {
+    setLoadingModels(true);
+    try {
+      // Try to fetch from user's Ollama settings
+      const response = await fetch(`${config.apiGatewayUrl}/api/settings/providers`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const ollamaBaseUrl = data.ollama?.baseUrl || 'http://localhost:11434';
+        
+        // Fetch available models from Ollama
+        const modelsResponse = await fetch(`${ollamaBaseUrl}/api/tags`);
+        if (modelsResponse.ok) {
+          const modelsData = await modelsResponse.json();
+          const modelNames = modelsData.models?.map((m: any) => m.name) || [];
+          setOllamaModels(modelNames);
+          
+          // Set first model as default if available
+          if (modelNames.length > 0 && !customModelInput) {
+            setChatSettings(prev => ({ ...prev, model: modelNames[0] }));
+          }
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch Ollama models:', error);
+      setOllamaModels([]);
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const fetchLMStudioModels = async () => {
+    setLoadingModels(true);
+    try {
+      // Try to fetch from LM Studio API (default port 1234)
+      const lmstudioUrl = 'http://localhost:1234';
+      const modelsResponse = await fetch(`${lmstudioUrl}/v1/models`);
+      
+      if (modelsResponse.ok) {
+        const modelsData = await modelsResponse.json();
+        const modelNames = modelsData.data?.map((m: any) => m.id) || [];
+        setLmstudioModels(modelNames);
+        
+        // Set first model as default if available
+        if (modelNames.length > 0 && !customModelInput) {
+          setChatSettings(prev => ({ ...prev, model: modelNames[0] }));
+        }
+      }
+    } catch (error) {
+      console.log('Could not fetch LM Studio models:', error);
+      setLmstudioModels([]);
+    } finally {
+      setLoadingModels(false);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -202,7 +277,7 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
              chatSettings.provider === 'ollama' ? 'Ollama' :
              chatSettings.provider === 'lmstudio' ? 'LM Studio' :
              chatSettings.provider === 'azure' ? 'Azure' :
-             chatSettings.provider.toUpperCase()} - {providerModels[chatSettings.provider].find((m: any) => m.id === chatSettings.model)?.name}
+             chatSettings.provider.toUpperCase()} - {(chatSettings.provider === 'ollama' || chatSettings.provider === 'lmstudio') ? chatSettings.model : (providerModels[chatSettings.provider].find((m: any) => m.id === chatSettings.model)?.name || chatSettings.model)}
           </div>
           <button
             onClick={() => setShowSettings(!showSettings)}
@@ -239,17 +314,53 @@ const SidebarChat: React.FC<SidebarChatProps> = ({ currentFile }) => {
             
             <div>
               <label className="block text-xs font-medium text-gray-300 mb-1">Model</label>
-              <select
-                value={chatSettings.model}
-                onChange={(e) => setChatSettings(prev => ({ ...prev, model: e.target.value }))}
-                className="w-full px-2 py-1 text-xs border border-gray-600 bg-gray-600 text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
-              >
-                {providerModels[chatSettings.provider].map((model) => (
-                  <option key={model.id} value={model.id}>
-                    {model.name}
-                  </option>
-                ))}
-              </select>
+              {(chatSettings.provider === 'ollama' || chatSettings.provider === 'lmstudio') ? (
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    value={chatSettings.model}
+                    onChange={(e) => {
+                      setCustomModelInput(e.target.value);
+                      setChatSettings(prev => ({ ...prev, model: e.target.value }));
+                    }}
+                    placeholder={`Enter ${chatSettings.provider === 'ollama' ? 'Ollama' : 'LM Studio'} model name...`}
+                    className="w-full px-2 py-1 text-xs border border-gray-600 bg-gray-600 text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    list={`${chatSettings.provider}-models-list`}
+                  />
+                  {loadingModels && (
+                    <div className="text-xs text-gray-400">Loading models...</div>
+                  )}
+                  {(chatSettings.provider === 'ollama' ? ollamaModels : lmstudioModels).length > 0 && (
+                    <datalist id={`${chatSettings.provider}-models-list`}>
+                      {(chatSettings.provider === 'ollama' ? ollamaModels : lmstudioModels).map((model) => (
+                        <option key={model} value={model} />
+                      ))}
+                    </datalist>
+                  )}
+                  {!loadingModels && (chatSettings.provider === 'ollama' ? ollamaModels : lmstudioModels).length > 0 && (
+                    <div className="text-xs text-gray-400">
+                      Available: {(chatSettings.provider === 'ollama' ? ollamaModels : lmstudioModels).join(', ')}
+                    </div>
+                  )}
+                  {!loadingModels && (chatSettings.provider === 'ollama' ? ollamaModels : lmstudioModels).length === 0 && (
+                    <div className="text-xs text-yellow-400">
+                      ⚠️ No models detected. Make sure {chatSettings.provider === 'ollama' ? 'Ollama' : 'LM Studio'} is running.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <select
+                  value={chatSettings.model}
+                  onChange={(e) => setChatSettings(prev => ({ ...prev, model: e.target.value }))}
+                  className="w-full px-2 py-1 text-xs border border-gray-600 bg-gray-600 text-white rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  {providerModels[chatSettings.provider].map((model) => (
+                    <option key={model.id} value={model.id}>
+                      {model.name}
+                    </option>
+                  ))}
+                </select>
+              )}
             </div>
           </div>
         )}

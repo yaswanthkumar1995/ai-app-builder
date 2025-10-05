@@ -18,7 +18,11 @@ interface TerminalSession {
   lastAccessedAt: string;
 }
 
-const EmbeddedTerminal: React.FC = () => {
+interface EmbeddedTerminalProps {
+  isVisible?: boolean;
+}
+
+const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true }) => {
   const { token, user } = useAuthStore();
   const { currentProject } = useProjectStore();
   const [activeSession, setActiveSession] = useState<TerminalSession | null>(null);
@@ -26,11 +30,15 @@ const EmbeddedTerminal: React.FC = () => {
   const [output, setOutput] = useState<string>('');
   const [containerId, setContainerId] = useState<string | null>(null);
   const [connecting, setConnecting] = useState(false);
+  const [initialized, setInitialized] = useState(false);
   const terminalRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
 
   useEffect(() => {
-    initializeTerminal();
+    if (isVisible && !initialized) {
+      initializeTerminal();
+      setInitialized(true);
+    }
     
     return () => {
       if (socketRef.current) {
@@ -38,7 +46,7 @@ const EmbeddedTerminal: React.FC = () => {
         socketRef.current = null;
       }
     };
-  }, [currentProject?.id]);
+  }, [isVisible, initialized, currentProject?.id]);
 
   useEffect(() => {
     if (terminalRef.current) {
@@ -67,22 +75,40 @@ const EmbeddedTerminal: React.FC = () => {
   };
 
   const connectToSocket = () => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log('Connecting to terminal WebSocket...');
-    }
-    // Use the WebSocket URL from config, converting ws:// to http:// for socket.io
-    const socketUrl = config.wsUrl.replace(/^ws(s?):/, 'http$1:').replace(':8000', ':3004');
+    console.log('🔌 Connecting to terminal WebSocket...');
+    console.log('🔧 Config:', config);
+    console.log('👤 User:', user);
+    console.log('🔑 Token:', token ? 'Present' : 'Missing');
+    
+    // Connect directly to terminal service on port 3004
+    const baseUrl = config.apiGatewayUrl.replace(/^https?:\/\//, '').split(':')[0];
+    const protocol = config.apiGatewayUrl.startsWith('https') ? 'https' : 'http';
+    const socketUrl = `${protocol}://${baseUrl}:3004`;
+    
+    console.log('✅ Terminal connecting to:', socketUrl);
+    console.log('🔧 Socket.IO options:', {
+      auth: { token: token ? 'Present' : 'Missing', userId: user?.id },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      timeout: 10000,
+      transports: ['websocket', 'polling']
+    });
+    
     const socket = io(socketUrl, {
       auth: {
         token,
         userId: user?.id
-      }
+      },
+      reconnection: true,
+      reconnectionDelay: 1000,
+      reconnectionAttempts: 5,
+      timeout: 10000,
+      transports: ['websocket', 'polling']
     });
 
     socket.on('connect', () => {
-      if (process.env.NODE_ENV === 'development') {
-        console.log('Terminal WebSocket connected');
-      }
+      console.log('✅ Terminal WebSocket connected successfully');
       setConnecting(false);
       setLoading(false);
       
@@ -93,6 +119,29 @@ const EmbeddedTerminal: React.FC = () => {
         userEmail: user?.email,
         workspacePath: currentProject?.workspacePath
       });
+    });
+
+    socket.on('connect_error', (error: any) => {
+      console.error('❌ Terminal WebSocket connection error:', error);
+      setConnecting(false);
+      setLoading(false);
+      setOutput('❌ Terminal connection error. Please check if terminal service is running.\n');
+      toast.error('Terminal connection failed');
+    });
+
+    socket.on('disconnect', (reason: string) => {
+      console.log('⚠️ Terminal WebSocket disconnected:', reason);
+      if (reason === 'io server disconnect') {
+        socket.connect();
+      }
+    });
+
+    socket.on('terminal-error', (data: any) => {
+      console.error('❌ Terminal error from server:', data);
+      setConnecting(false);
+      setLoading(false);
+      setOutput(`❌ Terminal error: ${data.error || 'Unknown error'}\n`);
+      toast.error(`Terminal error: ${data.error || 'Unknown error'}`);
     });
 
     socket.on('terminal-created', (data: any) => {

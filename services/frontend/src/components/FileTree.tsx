@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon, ArrowPathIcon, CodeBracketIcon } from '@heroicons/react/24/outline';
+import { ChevronRightIcon, ChevronDownIcon, DocumentIcon, FolderIcon, PlusIcon, ArrowPathIcon, CommandLineIcon, ChatBubbleLeftRightIcon } from '@heroicons/react/24/outline';
 
 interface FileNode {
   id: string;
@@ -33,6 +33,11 @@ interface FileTreeProps {
   onAddFileToChat?: (file: FileNode) => void;
   onCopyFile?: (file: FileNode) => void;
   onCutFile?: (file: FileNode) => void;
+  // Terminal and Chat toggles
+  onTerminalToggle?: () => void;
+  onChatToggle?: () => void;
+  showTerminal?: boolean;
+  showChat?: boolean;
 }
 
 const FileTree: React.FC<FileTreeProps> = ({
@@ -56,11 +61,14 @@ const FileTree: React.FC<FileTreeProps> = ({
   onAddFileToChat,
   onCopyFile,
   onCutFile,
+  onTerminalToggle,
+  onChatToggle,
+  showTerminal = false,
+  showChat = false,
 }) => {
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['/']));
   const [editingFile, setEditingFile] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
-  const [showPreview, setShowPreview] = useState(true);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; node: FileNode } | null>(null);
   const [pendingNewNodePath, setPendingNewNodePath] = useState<string | null>(null);
   const contextMenuRef = useRef<HTMLDivElement | null>(null);
@@ -420,7 +428,7 @@ const FileTree: React.FC<FileTreeProps> = ({
 
   return (
     <div className="h-full bg-gray-800 border-r border-gray-700 flex flex-col">
-      <div className="p-3 border-b border-gray-700">
+      <div className="p-3 border-b border-gray-700 relative z-10">
         <div className="flex items-center justify-between mb-3">
           <div className="flex space-x-1">
             {onRefreshRepos && (
@@ -448,13 +456,34 @@ const FileTree: React.FC<FileTreeProps> = ({
               <FolderIcon className="h-4 w-4" />
             </button>
           </div>
-          <button
-            onClick={() => setShowPreview(!showPreview)}
-            className={`p-1 rounded ${showPreview ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-700'}`}
-            title={showPreview ? "Hide preview" : "Show preview"}
-          >
-            <CodeBracketIcon className="h-4 w-4" />
-          </button>
+          <div className="flex space-x-1">
+            {onTerminalToggle && (
+              <button
+                onClick={onTerminalToggle}
+                className={`p-1 rounded border-2 focus:outline-none transition-all duration-200 ${
+                  showTerminal 
+                    ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700' 
+                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600 hover:border-gray-500'
+                }`}
+                title={showTerminal ? "Hide Terminal" : "Show Terminal"}
+              >
+                <CommandLineIcon className="h-4 w-4" />
+              </button>
+            )}
+            {onChatToggle && (
+              <button
+                onClick={onChatToggle}
+                className={`p-1 rounded border-2 focus:outline-none transition-all duration-200 ${
+                  showChat 
+                    ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700' 
+                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600 hover:border-gray-500'
+                }`}
+                title={showChat ? "Hide Chat" : "Show Chat"}
+              >
+                <ChatBubbleLeftRightIcon className="h-4 w-4" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Repository and Branch side by side */}
@@ -474,7 +503,7 @@ const FileTree: React.FC<FileTreeProps> = ({
               </button>
               
               {showRepoDropdown && !reposLoading && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-50 max-h-64 overflow-hidden flex flex-col">
+                <div className="absolute top-full left-0 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-[100] max-h-64 overflow-hidden flex flex-col">
                   {/* Search Input */}
                   <div className="p-2 border-b border-gray-600">
                     <input
@@ -534,7 +563,7 @@ const FileTree: React.FC<FileTreeProps> = ({
               </button>
               
               {showBranchDropdown && !branchesLoading && selectedRepo && (
-                <div className="absolute top-full left-0 right-0 mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-50 max-h-64 overflow-hidden flex flex-col">
+                <div className="absolute top-full left-0 w-full mt-1 bg-gray-700 border border-gray-600 rounded shadow-lg z-[100] max-h-64 overflow-hidden flex flex-col">
                   {/* Search Input */}
                   <div className="p-2 border-b border-gray-600">
                     <input
@@ -583,7 +612,8 @@ const FileTree: React.FC<FileTreeProps> = ({
         </div>
       </div>
       
-      <div className={`overflow-y-auto ${showPreview && selectedFileNode?.type === 'file' ? 'flex-1' : 'h-full'}`}>
+      {/* File Tree - Full Height */}
+      <div className="flex-1 overflow-y-auto">
         {files.length === 0 ? (
           <div className="p-4 text-center text-gray-400">
             <div className="text-2xl mb-2">📁</div>
@@ -606,48 +636,7 @@ const FileTree: React.FC<FileTreeProps> = ({
         )}
       </div>
 
-      {/* Code Preview Panel */}
-      {showPreview && selectedFileNode?.type === 'file' && (
-        <div className="border-t border-gray-700 bg-gray-900 flex flex-col" style={{ height: '40%', minHeight: '200px' }}>
-          {/* Preview Header */}
-          <div className="flex items-center justify-between px-3 py-2 bg-gray-800 border-b border-gray-700">
-            <div className="flex items-center space-x-2 min-w-0 flex-1">
-              <DocumentIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
-              <span className="text-xs font-medium text-gray-300 truncate" title={selectedFileNode.name}>
-                {selectedFileNode.name}
-              </span>
-            </div>
-            <button
-              onClick={() => setShowPreview(false)}
-              className="p-1 text-gray-400 hover:text-white hover:bg-gray-700 rounded flex-shrink-0"
-              title="Close preview"
-            >
-              <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-          
-          {/* Preview Content */}
-          <div className="flex-1 overflow-auto p-3">
-            {selectedFileNode.content ? (
-              <pre className="text-xs text-gray-300 font-mono leading-relaxed whitespace-pre-wrap break-words">
-                <code className={getSyntaxClass(selectedFileNode.name)}>
-                  {selectedFileNode.content}
-                </code>
-              </pre>
-            ) : (
-              <div className="flex items-center justify-center h-full text-gray-500 text-sm">
-                <div className="text-center">
-                  <DocumentIcon className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No content to preview</p>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-
+      {/* Context Menu */}
       {contextMenu && (
         <div
           ref={contextMenuRef}

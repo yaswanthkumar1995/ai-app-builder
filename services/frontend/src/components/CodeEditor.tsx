@@ -108,10 +108,12 @@ const CodeEditor: React.FC = () => {
   const [syncingRepo, setSyncingRepo] = useState(false);
   const [syncMessage, setSyncMessage] = useState('Select a repository to get started');
   const [syncState, setSyncState] = useState<'idle' | 'syncing' | 'success' | 'error'>('idle');
+  const [editorContextMenu, setEditorContextMenu] = useState<{ x: number; y: number } | null>(null);
   const gitOpsRef = useRef<GitOperations | null>(null);
   const lastSyncKeyRef = useRef<string | null>(null);
   const syncInFlightRef = useRef(false);
   const shouldHydrateSelectionRef = useRef<boolean>(Boolean(initialSelectedRepo));
+  const editorContextMenuRef = useRef<HTMLDivElement | null>(null);
   const openTabNodes = useMemo(
     () =>
       openTabs
@@ -722,6 +724,52 @@ const CodeEditor: React.FC = () => {
     closeTab(filePath);
   }, [closeTab]);
 
+  // Keyboard shortcuts for file tab management
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+Tab or Cmd+Tab - Switch between open files
+      if ((e.ctrlKey || e.metaKey) && e.key === 'Tab') {
+        e.preventDefault();
+        if (openTabs.length > 1) {
+          const currentIndex = selectedFile ? openTabs.indexOf(selectedFile.path) : -1;
+          const nextIndex = (currentIndex + 1) % openTabs.length;
+          const nextPath = openTabs[nextIndex];
+          handleTabSelect(nextPath);
+        }
+      }
+      // Ctrl+W or Cmd+W - Close current file
+      if ((e.ctrlKey || e.metaKey) && e.key === 'w') {
+        e.preventDefault();
+        if (selectedFile) {
+          closeTab(selectedFile.path);
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [openTabs, selectedFile, handleTabSelect, closeTab]);
+
+  // Context menu close handler
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (editorContextMenuRef.current && !editorContextMenuRef.current.contains(e.target as Node)) {
+        setEditorContextMenu(null);
+      }
+    };
+
+    if (editorContextMenu) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [editorContextMenu]);
+
+  const handleEditorContextMenu = (e: React.MouseEvent) => {
+    if (!selectedFile) return;
+    e.preventDefault();
+    setEditorContextMenu({ x: e.clientX, y: e.clientY });
+  };
+
   const copyTextToClipboard = useCallback(async (text: string) => {
     if (typeof window === 'undefined') {
       return false;
@@ -813,6 +861,16 @@ const CodeEditor: React.FC = () => {
     return languageMap[extension || ''] || 'plaintext';
   };
 
+  const isImageFile = (path: string): boolean => {
+    const extension = path.split('.').pop()?.toLowerCase();
+    return ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(extension || '');
+  };
+
+  const isPdfFile = (path: string): boolean => {
+    const extension = path.split('.').pop()?.toLowerCase();
+    return extension === 'pdf';
+  };
+
   const getLanguageLabel = (path: string): string => {
     const extension = path.split('.').pop()?.toLowerCase();
     if (!extension) return 'PLAINTEXT';
@@ -876,6 +934,10 @@ const CodeEditor: React.FC = () => {
               onAddFileToChat={handleAddFileToChat}
               onCopyFile={handleCopyFile}
               onCutFile={handleCutFile}
+              onTerminalToggle={handleTerminalToggle}
+              onChatToggle={handleChatToggle}
+              showTerminal={showTerminal}
+              showChat={showChat}
             />
           </div>
           <div
@@ -914,66 +976,43 @@ const CodeEditor: React.FC = () => {
                 <span className="text-xs text-gray-500">Select a file to start editing</span>
               )}
             </div>
-            
-            <div className="flex items-center space-x-1">
-              <button
-                onClick={handleTerminalToggle}
-                className={`p-2 rounded-lg border-2 focus:outline-none transition-all duration-200 ${
-                  showTerminal 
-                    ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700 shadow-lg' 
-                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600 hover:border-gray-500'
-                }`}
-                title={showTerminal ? "Hide Terminal (Ctrl+`)" : "Show Terminal (Ctrl+`)"}
-              >
-                <CommandLineIcon className="h-5 w-5" />
-              </button>
-              <button
-                onClick={handleChatToggle}
-                className={`p-2 rounded-lg border-2 focus:outline-none transition-all duration-200 ${
-                  showChat 
-                    ? 'bg-blue-600 border-blue-500 text-white hover:bg-blue-700 shadow-lg' 
-                    : 'bg-gray-700 border-gray-600 text-gray-300 hover:bg-gray-600 hover:border-gray-500'
-                }`}
-                title={showChat ? "Hide Chat (Ctrl+Shift+C)" : "Show Chat (Ctrl+Shift+C)"}
-              >
-                <ChatBubbleLeftRightIcon className="h-5 w-5" />
-              </button>
-            </div>
           </div>
         </div>
 
         {/* Open File Tabs */}
         {openTabNodes.length > 0 && (
-          <div className="flex items-stretch bg-gray-900 border-b border-gray-800 overflow-x-auto" role="tablist">
-            {openTabNodes.map((tab) => {
-              const isActive = selectedFile?.path === tab.path;
-              return (
-                <button
-                  key={tab.path}
-                  onClick={() => handleTabSelect(tab.path)}
-                  role="tab"
-                  aria-selected={isActive}
-                  className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium border-r border-gray-800 border-b-2 transition-colors whitespace-nowrap ${
-                    isActive
-                      ? 'bg-gray-900 text-white border-blue-500'
-                      : 'bg-gray-900/70 text-gray-400 hover:text-white hover:bg-gray-800 border-transparent'
-                  }`}
-                >
-                  <span className="truncate max-w-[140px] text-left">
-                    {tab.name}
-                  </span>
-                  <span
-                    role="button"
-                    aria-label={`Close ${tab.name}`}
-                    className="ml-2 p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-white"
-                    onClick={(event) => handleTabClose(event, tab.path)}
-                    onMouseDown={(event) => event.stopPropagation()}
+          <div className="w-full overflow-hidden">
+            <div className="flex items-stretch bg-gray-900 border-b border-gray-800 overflow-x-auto overflow-y-hidden scrollbar-thin" role="tablist">
+              {openTabNodes.map((tab) => {
+                const isActive = selectedFile?.path === tab.path;
+                return (
+                  <button
+                    key={tab.path}
+                    onClick={() => handleTabSelect(tab.path)}
+                    role="tab"
+                    aria-selected={isActive}
+                    className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium border-r border-gray-800 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                      isActive
+                        ? 'bg-gray-900 text-white border-blue-500'
+                        : 'bg-gray-900/70 text-gray-400 hover:text-white hover:bg-gray-800 border-transparent'
+                    }`}
                   >
-                    <XMarkIcon className="h-3.5 w-3.5" />
-                  </span>
-                </button>
-              );
-            })}
+                    <span className="truncate max-w-[140px] text-left">
+                      {tab.name}
+                    </span>
+                    <span
+                      role="button"
+                      aria-label={`Close ${tab.name}`}
+                      className="ml-2 p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-white flex-shrink-0"
+                      onClick={(event) => handleTabClose(event, tab.path)}
+                      onMouseDown={(event) => event.stopPropagation()}
+                    >
+                      <XMarkIcon className="h-3.5 w-3.5" />
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -982,32 +1021,70 @@ const CodeEditor: React.FC = () => {
           {/* Main Editor and Chat Area */}
           <div className={`flex transition-all duration-300 ${showTerminal ? `flex-1` : 'h-full'}`}>
             {/* Code Editor Area */}
-            <div className={`flex-1 min-w-0 transition-all duration-300`}>
+            <div 
+              className={`flex-1 min-w-0 transition-all duration-300 relative`}
+              onContextMenu={handleEditorContextMenu}
+            >
               {selectedFile ? (
-                <Editor
-                  height="100%"
-                  language={getLanguageFromPath(selectedFile.path)}
-                  value={editorContent}
-                  onChange={handleEditorChange}
-                  theme="vs-dark"
-                  options={{
-                    minimap: { enabled: false },
-                    fontSize: 14,
-                    lineNumbers: 'on',
-                    roundedSelection: false,
-                    scrollBeyondLastLine: false,
-                    automaticLayout: true,
-                    tabSize: 2,
-                    insertSpaces: true,
-                    wordWrap: 'on',
-                    suggestOnTriggerCharacters: true,
-                    acceptSuggestionOnEnter: 'on',
-                    quickSuggestions: true,
-                  }}
-                  onMount={(editor) => {
-                    editorRef.current = editor;
-                  }}
-                />
+                <>
+                  {isImageFile(selectedFile.path) ? (
+                    <div className="h-full flex items-center justify-center bg-gray-900 p-8 overflow-auto">
+                      <div className="max-w-full max-h-full">
+                        <img 
+                          src={`data:image/${selectedFile.path.split('.').pop()};base64,${btoa(editorContent)}`}
+                          alt={selectedFile.name}
+                          className="max-w-full max-h-full object-contain"
+                          onError={(e) => {
+                            // If base64 fails, try as direct URL or show error
+                            console.error('Failed to load image');
+                          }}
+                        />
+                        <div className="text-center mt-4 text-gray-400 text-sm">
+                          <p>{selectedFile.name}</p>
+                          <p className="text-xs text-gray-500 mt-1">Image files cannot be edited</p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : isPdfFile(selectedFile.path) ? (
+                    <div className="h-full flex flex-col bg-gray-900">
+                      <div className="flex-1 overflow-hidden">
+                        <iframe
+                          src={`data:application/pdf;base64,${btoa(editorContent)}`}
+                          className="w-full h-full border-0"
+                          title={selectedFile.name}
+                        />
+                      </div>
+                      <div className="text-center py-2 bg-gray-800 text-gray-400 text-xs border-t border-gray-700">
+                        <p>{selectedFile.name} - PDF files cannot be edited</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <Editor
+                      height="100%"
+                      language={getLanguageFromPath(selectedFile.path)}
+                      value={editorContent}
+                      onChange={handleEditorChange}
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 14,
+                        lineNumbers: 'on',
+                        roundedSelection: false,
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        tabSize: 2,
+                        insertSpaces: true,
+                        wordWrap: 'on',
+                        suggestOnTriggerCharacters: true,
+                        acceptSuggestionOnEnter: 'on',
+                        quickSuggestions: true,
+                      }}
+                      onMount={(editor) => {
+                        editorRef.current = editor;
+                      }}
+                    />
+                  )}
+                </>
               ) : (
                 <div className="h-full flex items-center justify-center bg-gray-900">
                   <div className="text-center text-gray-400">
@@ -1105,61 +1182,89 @@ const CodeEditor: React.FC = () => {
                   
                   {/* Terminal Content */}
                   <div className="flex-1 overflow-hidden">
-                    <EmbeddedTerminal />
+                    <EmbeddedTerminal isVisible={showTerminal} />
                   </div>
                 </div>
               </div>
             </>
           )}
         </div>
-
-        {/* Status Bar */}
-        <div className="h-9 bg-gray-900 border-t border-gray-800 px-4 flex items-center justify-between text-xs text-gray-300">
-          <div className="flex items-center space-x-2 overflow-hidden">
-            <DocumentIcon className="h-4 w-4 text-gray-400 flex-shrink-0" />
-            {selectedFile ? (
-              <div className="flex items-center space-x-1 overflow-hidden">
-                <span className="text-gray-200 font-medium truncate" title={selectedFile.name}>{selectedFile.name}</span>
-                <span className="text-gray-600">•</span>
-                <span className="truncate text-gray-400" title={selectedFile.path.replace(/^\/+/, '')}>
-                  {selectedFile.path.replace(/^\/+/, '')}
-                </span>
-              </div>
-            ) : (
-              <span className="text-gray-500">No file selected</span>
-            )}
-          </div>
-
-          <div className="flex items-center space-x-2 text-gray-400">
-            <span className={`px-2 py-0.5 rounded-full text-[10px] uppercase ${
-              syncState === 'success' ? 'bg-green-600/20 text-green-400 border border-green-500/40' :
-              syncState === 'error' ? 'bg-red-600/20 text-red-400 border border-red-500/40' :
-              syncState === 'syncing' ? 'bg-blue-600/20 text-blue-300 border border-blue-500/40 animate-pulse' :
-              'bg-gray-700/40 text-gray-300 border border-gray-600/40'
-            }`}>Workspace</span>
-            <span className="truncate max-w-xs" title={syncMessage}>{syncMessage}</span>
-          </div>
-
-          <div className="flex items-center space-x-4 text-gray-400">
-            {currentProject?.githubRepo && (
-              <div className="flex items-center space-x-1" title={`${currentProject.githubRepo}${currentProject.githubBranch ? `:${currentProject.githubBranch}` : ''}`}>
-                <svg className="h-4 w-4 text-gray-400" fill="currentColor" viewBox="0 0 24 24">
-                  <path fillRule="evenodd" d="M12 2C6.477 2 2 6.477 2 12c0 4.418 2.865 8.166 6.839 9.489.5.092.682-.217.682-.483 0-.237-.009-.868-.013-1.703-2.782.604-3.369-1.342-3.369-1.342-.454-1.154-1.11-1.462-1.11-1.462-.908-.62.069-.608.069-.608 1.004.071 1.532 1.032 1.532 1.032.892 1.529 2.341 1.087 2.91.832.091-.647.35-1.087.636-1.337-2.22-.252-4.555-1.11-4.555-4.943 0-1.091.39-1.984 1.029-2.683-.103-.253-.447-1.27.098-2.646 0 0 .84-.269 2.75 1.025A9.56 9.56 0 0 1 12 6.844a9.56 9.56 0 0 1 2.504.337c1.909-1.294 2.748-1.025 2.748-1.025.546 1.376.202 2.393.099 2.646.64.699 1.028 1.592 1.028 2.683 0 3.842-2.339 4.687-4.566 4.935.359.31.678.921.678 1.857 0 1.34-.012 2.421-.012 2.75 0 .268.18.58.688.482A10.003 10.003 0 0 0 22 12c0-5.523-4.477-10-10-10Z" clipRule="evenodd" />
-                </svg>
-                <span className="truncate max-w-xs">{currentProject.githubRepo}</span>
-                {currentProject.githubBranch && (
-                  <span className="text-gray-500">[{currentProject.githubBranch}]</span>
-                )}
-              </div>
-            )}
-            {selectedFile && (
-              <span className="uppercase tracking-wide text-[10px]" title={getLanguageFromPath(selectedFile.path)}>
-                {getLanguageLabel(selectedFile.path)}
-              </span>
-            )}
-          </div>
-        </div>
       </div>
+
+      {/* Editor Context Menu */}
+      {editorContextMenu && selectedFile && (
+        <div
+          ref={editorContextMenuRef}
+          className="fixed bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1 z-50 min-w-[180px]"
+          style={{
+            left: `${editorContextMenu.x}px`,
+            top: `${editorContextMenu.y}px`,
+          }}
+        >
+          <button
+            onClick={() => {
+              if (selectedFile) {
+                const newName = prompt('Enter new name:', selectedFile.name);
+                if (newName && newName.trim()) {
+                  handleFileRename(selectedFile.path, newName.trim());
+                }
+              }
+              setEditorContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            Rename
+          </button>
+          <button
+            onClick={() => {
+              if (selectedFile && window.confirm(`Are you sure you want to delete ${selectedFile.name}?`)) {
+                handleFileDelete(selectedFile.path);
+              }
+              setEditorContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            Delete
+          </button>
+          <div className="border-t border-gray-700 my-1"></div>
+          <button
+            onClick={async () => {
+              if (selectedFile && editorContent) {
+                await copyTextToClipboard(editorContent);
+                toast.success('File content copied to clipboard');
+              }
+              setEditorContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            Copy Content
+          </button>
+          <button
+            onClick={async () => {
+              if (selectedFile) {
+                await copyTextToClipboard(selectedFile.path);
+                toast.success('File path copied to clipboard');
+              }
+              setEditorContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            Copy Path
+          </button>
+          <div className="border-t border-gray-700 my-1"></div>
+          <button
+            onClick={() => {
+              if (selectedFile) {
+                closeTab(selectedFile.path);
+              }
+              setEditorContextMenu(null);
+            }}
+            className="w-full text-left px-4 py-2 text-sm text-gray-300 hover:bg-gray-700 hover:text-white"
+          >
+            Close File (Ctrl+W)
+          </button>
+        </div>
+      )}
     </div>
   );
 };

@@ -617,27 +617,44 @@ export const useProjectStore = create<ProjectState>()(
     }),
     {
       name: 'project-store',
-      partialize: (state) => ({
-        openTabs: state.openTabs,
-        projects: state.projects.map(project => ({
-          ...project,
-          createdAt: project.createdAt.toISOString(),
-          updatedAt: project.updatedAt.toISOString(),
-          files: project.files.map(file => ({
-            ...file,
-            lastModified: file.lastModified?.toISOString(),
-          })),
-        })),
-        currentProject: state.currentProject ? {
-          ...state.currentProject,
-          createdAt: state.currentProject.createdAt.toISOString(),
-          updatedAt: state.currentProject.updatedAt.toISOString(),
-          files: state.currentProject.files.map(file => ({
-            ...file,
-            lastModified: file.lastModified?.toISOString(),
-          })),
-        } : null,
-      }),
+      partialize: (state) => {
+        // Helper function to remove file contents to save space
+        const stripFileContents = (files: FileNode[]): any[] => {
+          return files.map(file => {
+            if (file.type === 'folder' && file.children) {
+              return {
+                ...file,
+                content: undefined, // Remove content
+                children: stripFileContents(file.children),
+                lastModified: file.lastModified?.toISOString(),
+              };
+            }
+            return {
+              ...file,
+              content: undefined, // Remove content to save space
+              lastModified: file.lastModified?.toISOString(),
+            };
+          });
+        };
+
+        return {
+          openTabs: state.openTabs,
+          // Don't persist projects to localStorage - they can be too large
+          projects: [],
+          currentProject: state.currentProject ? {
+            id: state.currentProject.id,
+            name: state.currentProject.name,
+            description: state.currentProject.description,
+            githubRepo: state.currentProject.githubRepo,
+            githubBranch: state.currentProject.githubBranch,
+            isGithubProject: state.currentProject.isGithubProject,
+            workspacePath: state.currentProject.workspacePath,
+            createdAt: state.currentProject.createdAt.toISOString(),
+            updatedAt: state.currentProject.updatedAt.toISOString(),
+            files: stripFileContents(state.currentProject.files),
+          } : null,
+        };
+      },
       onRehydrateStorage: () => (state) => {
         if (state) {
           state.openTabs = state.openTabs || [];
