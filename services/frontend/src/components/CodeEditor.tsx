@@ -132,11 +132,11 @@ const CodeEditor: React.FC = () => {
 
   useEffect(() => {
     if (token && user?.id) {
-      gitOpsRef.current = new GitOperations(token, user.id);
+  gitOpsRef.current = new GitOperations(token, user.id, user.email, currentProject?.id, user.username);
     } else {
       gitOpsRef.current = null;
     }
-  }, [token, user?.id]);
+  }, [token, user?.id, user?.email, currentProject?.id]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {

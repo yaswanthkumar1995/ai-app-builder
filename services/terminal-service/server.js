@@ -34,6 +34,63 @@ const isSafeGitRef = (value = '') => {
   return true;
 };
 
+const DEFAULT_USERNAME_FALLBACK = 'workspace_user';
+const USERNAME_MAX_LENGTH = 50;
+
+const sanitizeUsername = (value, fallback = DEFAULT_USERNAME_FALLBACK) => {
+  if (typeof value !== 'string') {
+    return sanitizeUsername(fallback, DEFAULT_USERNAME_FALLBACK);
+  }
+
+  const normalized = value
+    .trim()
+    .replace(/[^a-zA-Z0-9_]/g, '_')
+    .replace(/_+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .toLowerCase()
+    .slice(0, USERNAME_MAX_LENGTH);
+
+  if (normalized) {
+    return normalized;
+  }
+
+  if (fallback === DEFAULT_USERNAME_FALLBACK) {
+    return DEFAULT_USERNAME_FALLBACK;
+  }
+
+  return sanitizeUsername(DEFAULT_USERNAME_FALLBACK, DEFAULT_USERNAME_FALLBACK);
+};
+
+const buildUsernameFallback = (userId) => {
+  const safeId = String(userId || '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .slice(-12);
+
+  if (safeId) {
+    return sanitizeUsername(`user_${safeId}`);
+  }
+
+  const randomSuffix = uuidv4().replace(/[^a-zA-Z0-9]/g, '').slice(0, 12);
+  return sanitizeUsername(`user_${randomSuffix}`);
+};
+
+const normalizeCandidateUsername = (value) => {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.toLowerCase() === 'undefined' || trimmed.toLowerCase() === 'null') {
+    return undefined;
+  }
+  return trimmed;
+};
+
+const resolveUsername = ({ provided, header, session, userId }) => {
+  const fallback = buildUsernameFallback(userId);
+  const candidate = normalizeCandidateUsername(provided)
+    || normalizeCandidateUsername(header)
+    || normalizeCandidateUsername(session);
+  return sanitizeUsername(candidate, fallback);
+};
+
 const writeInfoToTerminal = (sessionInfo, message) => {
   if (!sessionInfo?.ptyProcess || sessionInfo.ptyProcess.killed) {
     return;
@@ -181,32 +238,44 @@ app.get('/socket.io-test', (req, res) => {
 // REST API endpoints for terminal session management
 app.post('/terminal/create-session', async (req, res) => {
   try {
-    const { userId, projectId, userEmail, workspacePath } = req.body;
+    const { userId, projectId, username: providedUsername, workspacePath } = req.body;
     console.log(`REST: Creating terminal session for user: ${userId}`);
     if (workspacePath) {
       console.log(`Using workspace path: ${workspacePath}`);
     }
     
-    // Check if session already exists and is valid
+    const headerUsername = typeof req.headers['x-username'] === 'string' ? req.headers['x-username'] : undefined;
     const existingSession = userSessions.get(userId);
-    if (existingSession && existingSession.ptyProcess && !existingSession.ptyProcess.killed) {
+    const resolvedUsername = resolveUsername({
+      provided: providedUsername,
+      header: headerUsername,
+      session: existingSession?.username,
+      userId
+    });
+    const sessionToUse = existingSession && existingSession.ptyProcess && !existingSession.ptyProcess.killed
+      ? existingSession
+      : null;
+
+    // Check if session already exists and is valid
+    if (sessionToUse) {
       console.log(`REST: Reusing existing terminal session for user: ${userId}`);
       return res.json({
         success: true,
-        id: existingSession.sessionId,
+        id: sessionToUse.sessionId,
         userId: userId,
         projectId: projectId,
-        sessionId: existingSession.sessionId,
+        sessionId: sessionToUse.sessionId,
         status: 'active',
-        workingDirectory: existingSession.workingDir,
+        workingDirectory: sessionToUse.workingDir,
         environment: {},
-        createdAt: existingSession.createdAt,
-        updatedAt: existingSession.createdAt,
-        lastAccessedAt: new Date().toISOString()
+        createdAt: sessionToUse.createdAt,
+        updatedAt: sessionToUse.createdAt,
+        lastAccessedAt: new Date().toISOString(),
+        username: sessionToUse.username
       });
     }
     
-    const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);
+    const sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername, workspacePath);
     
     res.json({
       success: true,
@@ -219,7 +288,8 @@ app.post('/terminal/create-session', async (req, res) => {
       environment: {},
       createdAt: sessionInfo.createdAt,
       updatedAt: sessionInfo.createdAt,
-      lastAccessedAt: sessionInfo.createdAt
+      lastAccessedAt: sessionInfo.createdAt,
+      username: sessionInfo.username
     });
   } catch (error) {
     console.error('REST: Error creating terminal session:', error);
@@ -302,15 +372,16 @@ app.post('/git/clone', async (req, res) => {
     }
 
     // Get username from session if exists, otherwise derive from email or userId
-    let username;
     const sessionInfo = userSessions.get(userId);
-    if (sessionInfo) {
-      username = sessionInfo.username;
-    } else if (userEmail) {
-      username = userEmail.split('@')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
-    } else {
-      username = `user${userId.slice(-8)}`;
-    }
+    const headerUsername = typeof req.headers['x-username'] === 'string'
+      ? req.headers['x-username']
+      : undefined;
+    const username = resolveUsername({
+      provided: req.body.username,
+      header: headerUsername,
+      session: sessionInfo?.username,
+      userId
+    });
 
     const repoIdentifier = normalizeRepoUrl(repoUrl);
     const projectSlugSource = projectName || repoIdentifier.split('/').pop() || 'project';
@@ -433,7 +504,7 @@ app.post('/git/clone', async (req, res) => {
 });
 app.post('/git/checkout', async (req, res) => {
   try {
-    const { branch, userId, create, projectId, userEmail } = req.body;
+  const { branch, userId, create, projectId, userEmail, username: providedUsername } = req.body;
     if (!userId || !branch) {
       return res.status(400).json({ 
         success: false, 
@@ -454,7 +525,16 @@ app.post('/git/checkout', async (req, res) => {
     if (!sessionInfo) {
       console.log(`📝 No session found for user ${userId}, creating one...`);
       try {
-        sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+        const headerUsername = typeof req.headers['x-username'] === 'string'
+          ? req.headers['x-username']
+          : undefined;
+        const resolvedUsername = resolveUsername({
+          provided: providedUsername || userEmail,
+          header: headerUsername,
+          session: undefined,
+          userId
+        });
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
         console.log(`✅ Session created for user ${userId}`);
       } catch (error) {
         console.error('❌ Failed to create session:', error);
@@ -532,7 +612,7 @@ app.get('/git/status/:userId', async (req, res) => {
 
 app.post('/git/commit', async (req, res) => {
   try {
-    const { userId, message, files, projectId, userEmail } = req.body;
+    const { userId, message, files, projectId, userEmail, username: providedUsername } = req.body;
     
     if (!userId || !message) {
       return res.status(400).json({ 
@@ -545,7 +625,16 @@ app.post('/git/commit', async (req, res) => {
     if (!sessionInfo) {
       console.log(`📝 No session found for user ${userId}, creating one...`);
       try {
-        sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+        const headerUsername = typeof req.headers['x-username'] === 'string'
+          ? req.headers['x-username']
+          : undefined;
+        const resolvedUsername = resolveUsername({
+          provided: providedUsername || userEmail,
+          header: headerUsername,
+          session: undefined,
+          userId
+        });
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
       } catch (error) {
         return res.status(500).json({
           success: false,
@@ -585,7 +674,7 @@ app.post('/git/commit', async (req, res) => {
 
 app.post('/git/push', async (req, res) => {
   try {
-    const { userId, branch, projectId, userEmail } = req.body;
+    const { userId, branch, projectId, userEmail, username: providedUsername } = req.body;
     
     if (!userId) {
       return res.status(400).json({ 
@@ -598,7 +687,16 @@ app.post('/git/push', async (req, res) => {
     if (!sessionInfo) {
       console.log(`📝 No session found for user ${userId}, creating one...`);
       try {
-        sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail);
+        const headerUsername = typeof req.headers['x-username'] === 'string'
+          ? req.headers['x-username']
+          : undefined;
+        const resolvedUsername = resolveUsername({
+          provided: providedUsername || userEmail,
+          header: headerUsername,
+          session: undefined,
+          userId
+        });
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
       } catch (error) {
         return res.status(500).json({
           success: false,
@@ -652,13 +750,30 @@ app.get('/workspace/state/:userId', (req, res) => {
 app.get('/workspace/files/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const sessionInfo = userSessions.get(userId);
+    let sessionInfo = userSessions.get(userId);
     
     if (!sessionInfo) {
-      return res.status(404).json({
-        success: false,
-        error: 'Terminal session not found'
+      console.log(`📂 No session found for workspace files request from user ${userId}, creating one...`);
+      // Get project ID and user email from headers (if available from API Gateway)
+      const projectId = req.headers['x-project-id'];
+      const userEmail = typeof req.headers['x-user-email'] === 'string' ? req.headers['x-user-email'] : undefined;
+      const headerUsername = typeof req.headers['x-username'] === 'string' ? req.headers['x-username'] : undefined;
+      const resolvedUsername = resolveUsername({
+        provided: headerUsername || userEmail,
+        header: headerUsername,
+        session: undefined,
+        userId
       });
+      
+      try {
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
+        console.log(`✅ Session created successfully for workspace files request`);
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create terminal session: ' + error.message
+        });
+      }
     }
 
     const workspacePath = sessionInfo.workingDir;
@@ -755,12 +870,29 @@ app.get('/workspace/file/:userId/*', async (req, res) => {
     const { userId } = req.params;
     const filePath = req.params[0]; // Everything after /workspace/file/:userId/
     
-    const sessionInfo = userSessions.get(userId);
+    let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      return res.status(404).json({
-        success: false,
-        error: 'Terminal session not found'
+      console.log(`📄 No session found for file content request from user ${userId}, creating one...`);
+      // Get project ID and user email from headers (if available from API Gateway)
+      const projectId = req.headers['x-project-id'];
+      const userEmail = typeof req.headers['x-user-email'] === 'string' ? req.headers['x-user-email'] : undefined;
+      const headerUsername = typeof req.headers['x-username'] === 'string' ? req.headers['x-username'] : undefined;
+      const resolvedUsername = resolveUsername({
+        provided: headerUsername || userEmail,
+        header: headerUsername,
+        session: undefined,
+        userId
       });
+      
+      try {
+        sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
+        console.log(`✅ Session created successfully for file content request`);
+      } catch (error) {
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to create terminal session: ' + error.message
+        });
+      }
     }
 
     const fullPath = path.join(sessionInfo.workingDir, filePath);
@@ -830,12 +962,16 @@ app.post('/workspace/state/:userId', (req, res) => {
 
 // Direct PTY terminal session management
 class TerminalManager {
-  async createUserSession(userId, projectId = null, userEmail = null, workspacePath = null) {
+  async createUserSession(userId, projectId = null, username = null, workspacePath = null) {
     try {
-      const username = userEmail ? userEmail.split('@')[0].replace(/[^a-zA-Z0-9]/g, '') : `user${userId.slice(-4)}`;
+      const resolvedUsername = sanitizeUsername(
+        username,
+        buildUsernameFallback(userId)
+      );
+      const workspaceUsername = resolvedUsername;
       const sessionId = uuidv4();
 
-      const workspaceRoot = `/workspaces/${username}`;
+      const workspaceRoot = `/workspaces/${workspaceUsername}`;
       const userState = getUserWorkspaceState(userId);
 
       let workingDir = workspaceRoot;
@@ -855,12 +991,12 @@ class TerminalManager {
 
       const homeDir = workspaceRoot;
 
-      console.log(`Creating PTY terminal session for user: ${username}`);
+  console.log(`Creating PTY terminal session for user: ${resolvedUsername}`);
       console.log(`Home directory: ${homeDir}`);
       console.log(`Initial working directory: ${workingDir}`);
       
       // Create user account if it doesn't exist
-      await this.createSystemUser(username, homeDir, workingDir);
+  await this.createSystemUser(resolvedUsername, homeDir, workingDir);
 
       await this.ensureDirectory(homeDir);
       if (workingDir !== homeDir) {
@@ -1089,7 +1225,7 @@ exec /bin/bash --rcfile "${bashrcPath}" -i
       }, 2000); // Increased timeout to allow git operations
       
       const sessionInfo = {
-        username,
+        username: resolvedUsername,
         workingDir,
         sessionId,
         homeDir,
@@ -1099,7 +1235,7 @@ exec /bin/bash --rcfile "${bashrcPath}" -i
       
       userSessions.set(userId, sessionInfo);
       
-      console.log(`PTY terminal session created for ${username}`);
+  console.log(`PTY terminal session created for ${resolvedUsername}`);
       return sessionInfo;
       
     } catch (error) {
@@ -1345,7 +1481,23 @@ io.on('connection', (socket) => {
         console.log(`📂 Using workspace path: ${workspacePath}`);
       }
 
-      const sessionInfo = await terminalManager.createUserSession(userId, projectId, userEmail, workspacePath);
+      const existingSession = userSessions.get(userId);
+      const headerUsername = typeof socket.handshake.auth?.username === 'string'
+        ? socket.handshake.auth.username
+        : undefined;
+      const resolvedUsername = resolveUsername({
+        provided: data.username,
+        header: headerUsername,
+        session: existingSession?.username,
+        userId
+      });
+
+      const sessionInfo = await terminalManager.createUserSession(
+        userId,
+        projectId,
+        resolvedUsername,
+        workspacePath
+      );
       
       // Set up PTY data streaming
       const ptyProcess = sessionInfo.ptyProcess;

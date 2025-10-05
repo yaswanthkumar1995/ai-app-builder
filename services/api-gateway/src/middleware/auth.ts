@@ -1,9 +1,37 @@
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
+import crypto from 'crypto';
 
 interface AuthRequest extends Request {
   user?: any;
 }
+
+const sanitizeUsername = (value?: unknown): string | undefined => {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const cleaned = trimmed.replace(/[^a-zA-Z0-9_\-]/g, '').slice(0, 64);
+  return cleaned || undefined;
+};
+
+const buildFallbackUsername = (userId?: unknown): string => {
+  const safeId = typeof userId === 'string' && userId
+    ? userId.replace(/[^a-zA-Z0-9]/g, '').slice(-12)
+    : undefined;
+
+  if (safeId && safeId.length > 0) {
+    return `user_${safeId}`;
+  }
+
+  const random = crypto.randomUUID().replace(/[^a-zA-Z0-9]/g, '').slice(0, 12) || 'anon';
+  return `user_${random}`;
+};
 
 export const authMiddleware = (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
@@ -18,9 +46,21 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
 
     req.user = decoded;
 
-    // Add user info to headers for downstream services
-    req.headers['x-user-id'] = decoded.id;
-    req.headers['x-user-email'] = decoded.email;
+    // Add user info to headers for downstream services when available
+    if (decoded.id) {
+      req.headers['x-user-id'] = String(decoded.id);
+    } else {
+      delete req.headers['x-user-id'];
+    }
+
+    if (decoded.email) {
+      req.headers['x-user-email'] = String(decoded.email);
+    } else {
+      delete req.headers['x-user-email'];
+    }
+
+    const normalizedUsername = sanitizeUsername(decoded.username) || buildFallbackUsername(decoded.id);
+    req.headers['x-username'] = normalizedUsername;
 
     next();
   } catch (error) {

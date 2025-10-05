@@ -33,6 +33,159 @@ interface ProviderSettings {
   };
 }
 
+const AccountProfileForm: React.FC = () => {
+  const { user, updateProfile } = useAuthStore();
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [displayName, setDisplayName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setFirstName(user?.firstname ?? '');
+    setLastName(user?.lastname ?? '');
+    setDisplayName(user?.name ?? '');
+  }, [user?.id, user?.firstname, user?.lastname, user?.name]);
+
+  const normalizedFirst = firstName.trim();
+  const normalizedLast = lastName.trim();
+  const normalizedDisplay = displayName.trim();
+  const currentFirst = user?.firstname ?? '';
+  const currentLast = user?.lastname ?? '';
+  const currentDisplay = user?.name ?? '';
+
+  const hasChanges =
+    normalizedDisplay !== currentDisplay ||
+    normalizedFirst !== currentFirst ||
+    normalizedLast !== currentLast;
+
+  const handleSubmit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+
+    if (!user) {
+      toast.error('You must be logged in to update your profile.');
+      return;
+    }
+
+    if (!normalizedDisplay) {
+      toast.error('Display name is required.');
+      return;
+    }
+
+    const updates: {
+      firstname?: string;
+      lastname?: string;
+      name?: string;
+    } = {};
+
+    if (normalizedFirst && normalizedFirst !== currentFirst) {
+      updates.firstname = normalizedFirst;
+    }
+
+    if (normalizedLast && normalizedLast !== currentLast) {
+      updates.lastname = normalizedLast;
+    }
+
+    if (normalizedDisplay !== currentDisplay) {
+      updates.name = normalizedDisplay;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      toast('No changes to save.');
+      return;
+    }
+
+    try {
+      setIsSaving(true);
+      await updateProfile(updates);
+      toast.success('Profile updated successfully');
+    } catch (error: any) {
+      toast.error(error?.message || 'Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Email <span className="text-gray-500">(read-only)</span>
+        </label>
+        <input
+          type="email"
+          value={user?.email || ''}
+          disabled
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Username <span className="text-gray-500">(read-only)</span>
+        </label>
+        <input
+          type="text"
+          value={user?.username || ''}
+          disabled
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500"
+        />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            First Name
+          </label>
+          <input
+            type="text"
+            value={firstName}
+            onChange={(event) => setFirstName(event.target.value)}
+            placeholder="First name"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+            Last Name
+          </label>
+          <input
+            type="text"
+            value={lastName}
+            onChange={(event) => setLastName(event.target.value)}
+            placeholder="Last name"
+            className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+          Display Name
+        </label>
+        <input
+          type="text"
+          value={displayName}
+          onChange={(event) => setDisplayName(event.target.value)}
+          placeholder="Your display name"
+          required
+          className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+
+      <div className="pt-2">
+        <button
+          type="submit"
+          disabled={!hasChanges || isSaving}
+          className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isSaving ? 'Saving...' : 'Save Changes'}
+        </button>
+      </div>
+    </form>
+  );
+};
+
 const Settings: React.FC = () => {
   const { token, user, logout } = useAuthStore();
   const [settings, setSettings] = useState<ProviderSettings>({
@@ -961,26 +1114,7 @@ const Settings: React.FC = () => {
 
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                   <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-4">Profile Information</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Name</label>
-                      <input
-                        type="text"
-                        value={user?.name || ''}
-                        disabled
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Email</label>
-                      <input
-                        type="email"
-                        value={user?.email || ''}
-                        disabled
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-700 text-gray-400 dark:text-gray-500"
-                      />
-                    </div>
-                  </div>
+                  <AccountProfileForm />
                 </div>
 
                 <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-red-200 dark:border-red-700">

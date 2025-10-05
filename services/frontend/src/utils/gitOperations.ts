@@ -10,15 +10,22 @@ interface GitOperation {
   userEmail?: string;
   create?: boolean;
   files?: string[];
+  username?: string;
 }
 
 export class GitOperations {
   private token: string;
   private userId: string;
+  private userEmail?: string;
+  private projectId?: string;
+  private username?: string;
 
-  constructor(token: string, userId: string) {
+  constructor(token: string, userId: string, userEmail?: string, projectId?: string, username?: string) {
     this.token = token;
     this.userId = userId;
+    this.userEmail = userEmail;
+    this.projectId = projectId;
+    this.username = username;
   }
 
   async executeGitOperation(operation: GitOperation): Promise<any> {
@@ -61,7 +68,8 @@ export class GitOperations {
         message: operation.message,
         userId,
         projectName: operation.projectName,
-        userEmail: operation.userEmail
+        userEmail: operation.userEmail,
+        username: operation.username || this.username
       })
     });
 
@@ -83,7 +91,10 @@ export class GitOperations {
       body: JSON.stringify({
         branch: operation.branch,
         userId: this.userId,
-        create: operation.create
+        userEmail: this.userEmail,
+        projectId: this.projectId,
+        create: operation.create,
+        username: this.username
       })
     });
 
@@ -119,8 +130,11 @@ export class GitOperations {
       },
       body: JSON.stringify({
         userId: this.userId,
+        userEmail: this.userEmail,
+        projectId: this.projectId,
         message: operation.message,
-        files: operation.files
+        files: operation.files,
+        username: this.username
       })
     });
 
@@ -141,7 +155,10 @@ export class GitOperations {
       },
       body: JSON.stringify({
         userId: this.userId,
-        branch: operation.branch
+        userEmail: this.userEmail,
+        projectId: this.projectId,
+        branch: operation.branch,
+        username: this.username
       })
     });
 
@@ -164,7 +181,8 @@ export class GitOperations {
       body: JSON.stringify({
         userId: this.userId,
         projectId: projectId,
-        userEmail: userEmail
+        userEmail: userEmail,
+        username: this.username
       })
     });
 

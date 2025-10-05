@@ -49,6 +49,10 @@ services:
       - NODE_ENV=development
       - FRONTEND_URL=http://localhost:3000
       - DATABASE_SERVICE_URL=http://database-service:3003
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_USER=yaramyaswanthkumar@gmail.com
+      - SMTP_PASS=uret vhrk lcxy pgmk
       - GITHUB_CLIENT_ID=${GITHUB_CLIENT_ID}
       - GITHUB_CLIENT_SECRET=${GITHUB_CLIENT_SECRET}
       - GITHUB_APP_NAME=${GITHUB_APP_NAME}

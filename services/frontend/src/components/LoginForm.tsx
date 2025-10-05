@@ -7,10 +7,14 @@ const LoginForm: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isLogin, setIsLogin] = useState(location.pathname === '/login');
+  const [emailOrUsername, setEmailOrUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [firstname, setFirstname] = useState('');
+  const [lastname, setLastname] = useState('');
   const { login, register, isLoading, isAuthenticated } = useAuthStore();
+  const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,50}$/;
 
   // Update mode based on route
   useEffect(() => {
@@ -29,23 +33,39 @@ const LoginForm: React.FC = () => {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!email || !password) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    if (!isLogin && !name) {
-      toast.error('Please enter your name');
-      return;
+    if (isLogin) {
+      if (!emailOrUsername || !password) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+    } else {
+      if (!email || !password || !username.trim()) {
+        toast.error('Please fill in all required fields');
+        return;
+      }
+      if (!USERNAME_REGEX.test(username.trim())) {
+        toast.error('Username must be 3-50 characters using letters, numbers, or underscores');
+        return;
+      }
     }
 
     try {
       if (isLogin) {
-        await login(email, password);
+        const identifier = emailOrUsername.trim();
+        await login(identifier, password);
         toast.success('Login successful!');
         navigate('/dashboard');
       } else {
-        await register(email, password, name);
+        const trimmedUsername = username.trim();
+        const sanitizedFirstname = firstname.trim() || undefined;
+        const sanitizedLastname = lastname.trim() || undefined;
+        await register(
+          email.trim(),
+          password,
+          trimmedUsername,
+          sanitizedFirstname,
+          sanitizedLastname
+        );
         // Show verification notice since all registrations now require email verification
         toast.success('Registration successful! Please check your email to verify your account.');
         setShowVerificationNotice(true);
@@ -55,7 +75,7 @@ const LoginForm: React.FC = () => {
         toast.error('Please verify your email before logging in');
         // Could show a resend verification option here
       } else {
-        toast.error(isLogin ? 'Login failed' : 'Registration failed');
+        toast.error(error?.message || (isLogin ? 'Login failed' : 'Registration failed'));
       }
     }
   };
@@ -72,58 +92,128 @@ const LoginForm: React.FC = () => {
           </p>
         </div>
         <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-          <div className="rounded-md shadow-sm -space-y-px">
-            {!isLogin && (
-              <div>
-                <label htmlFor="name" className="sr-only">
-                  Name
-                </label>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required={!isLogin}
-                  className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white rounded-t-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                  placeholder="Full Name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                />
-              </div>
+          <div className="rounded-md shadow-sm space-y-2">
+            {isLogin ? (
+              <>
+                <div>
+                  <label htmlFor="emailOrUsername" className="sr-only">
+                    Email or Username
+                  </label>
+                  <input
+                    id="emailOrUsername"
+                    name="emailOrUsername"
+                    type="text"
+                    autoComplete="username"
+                    required
+                    className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Email or Username"
+                    value={emailOrUsername}
+                    onChange={(e) => setEmailOrUsername(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="password" className="sr-only">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autoComplete="current-password"
+                    required
+                    className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div>
+                  <label htmlFor="email" className="sr-only">
+                    Email address
+                  </label>
+                  <input
+                    id="email"
+                    name="email"
+                    type="email"
+                    autoComplete="email"
+                    required
+                    className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Email address *"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="username" className="sr-only">
+                    Username
+                  </label>
+                  <input
+                    id="username"
+                    name="username"
+                    type="text"
+                    autoComplete="username"
+                    required
+                    pattern="[a-zA-Z0-9_]{3,50}"
+                    title="3-50 characters using letters, numbers, or underscores"
+                    className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Username *"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value.replace(/[^a-zA-Z0-9_]/g, ''))}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label htmlFor="firstname" className="sr-only">
+                      First Name
+                    </label>
+                    <input
+                      id="firstname"
+                      name="firstname"
+                      type="text"
+                      autoComplete="given-name"
+                      className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                      placeholder="First Name (optional)"
+                      value={firstname}
+                      onChange={(e) => setFirstname(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="lastname" className="sr-only">
+                      Last Name
+                    </label>
+                    <input
+                      id="lastname"
+                      name="lastname"
+                      type="text"
+                      autoComplete="family-name"
+                      className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                      placeholder="Last Name (optional)"
+                      value={lastname}
+                      onChange={(e) => setLastname(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="password" className="sr-only">
+                    Password
+                  </label>
+                  <input
+                    id="password"
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    required
+                    className="appearance-none rounded-md relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
+                    placeholder="Password (min 6 characters) *"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                  />
+                </div>
+              </>
             )}
-            <div>
-              <label htmlFor="email" className="sr-only">
-                Email address
-              </label>
-              <input
-                id="email"
-                name="email"
-                type="email"
-                autoComplete="email"
-                required
-                className={`appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white ${
-                  isLogin ? 'rounded-t-md' : ''
-                } focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm`}
-                placeholder="Email address"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div>
-              <label htmlFor="password" className="sr-only">
-                Password
-              </label>
-              <input
-                id="password"
-                name="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                className="appearance-none rounded-none relative block w-full px-3 py-2 border border-gray-600 bg-gray-800 placeholder-gray-400 text-white rounded-b-md focus:outline-none focus:ring-blue-500 focus:border-blue-500 focus:z-10 sm:text-sm"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
           </div>
 
           <div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
+import { config } from '../config';
 
 const VerifyEmailPage: React.FC = () => {
   const [searchParams] = useSearchParams();
@@ -19,7 +20,7 @@ const VerifyEmailPage: React.FC = () => {
     // Call the verification API
     const verifyEmail = async () => {
       try {
-        const response = await fetch('/api/auth/verify-email', {
+        const response = await fetch(`${config.apiGatewayUrl}/api/auth/verify-email`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -27,7 +28,12 @@ const VerifyEmailPage: React.FC = () => {
           body: JSON.stringify({ token }),
         });
 
-        const data = await response.json();
+        let data: any = {};
+        try {
+          data = await response.json();
+        } catch (jsonError) {
+          console.error('Failed to parse verification response as JSON', jsonError);
+        }
 
         if (response.ok) {
           setVerificationStatus('success');

@@ -7,6 +7,9 @@ USE ai_platform;
 -- Users table (will be managed by Auth Service)
 CREATE TABLE IF NOT EXISTS users (
   id VARCHAR(128) PRIMARY KEY,
+  username VARCHAR(50) NOT NULL UNIQUE,
+  firstname VARCHAR(100),
+  lastname VARCHAR(100),
   email VARCHAR(255) NOT NULL UNIQUE,
   name VARCHAR(255) NOT NULL,
   password TEXT,
@@ -15,7 +18,9 @@ CREATE TABLE IF NOT EXISTS users (
   verification_token VARCHAR(255),
   verification_expires TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_username (username),
+  INDEX idx_email (email)
 );
 
 -- Provider settings table - one row per user with all provider tokens

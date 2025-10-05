@@ -51,17 +51,24 @@ const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
   name: z.string().min(2),
+  username: z.string()
+    .trim()
+    .min(3)
+    .max(50)
+    .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers, and underscores'),
+  firstname: z.string().min(1).max(100).optional(),
+  lastname: z.string().min(1).max(100).optional(),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  emailOrUsername: z.string().trim().min(1),
   password: z.string(),
 });
 
 // Helper functions
 const generateToken = (user: any) => {
   return jwt.sign(
-    { id: user.id, email: user.email },
+    { id: user.id, email: user.email, username: user.username },
     process.env.JWT_SECRET || 'default-secret',
     { expiresIn: process.env.JWT_EXPIRES_IN || '24h' } as jwt.SignOptions
   );
@@ -129,9 +136,9 @@ const sendVerificationEmail = async (email: string, name: string, token: string)
 // Routes
 app.post('/auth/register', async (req, res) => {
   try {
-    const { email, password, name } = registerSchema.parse(req.body);
+    const { email, password, name, username, firstname, lastname } = registerSchema.parse(req.body);
 
-    // Check if user already exists
+    // Check if email already exists
     const existingUser = await db
       .select()
       .from(users)
@@ -139,7 +146,18 @@ app.post('/auth/register', async (req, res) => {
       .limit(1);
 
     if (existingUser.length > 0) {
-      return res.status(400).json({ error: 'User already exists' });
+      return res.status(400).json({ error: 'Email already exists' });
+    }
+
+    // Check if username already exists
+    const existingUsername = await db
+      .select()
+      .from(users)
+      .where(eq(users.username, username))
+      .limit(1);
+
+    if (existingUsername.length > 0) {
+      return res.status(400).json({ error: 'Username already taken' });
     }
 
     // Hash password
@@ -153,6 +171,9 @@ app.post('/auth/register', async (req, res) => {
     await db.insert(users).values({
       email,
       name,
+      username,
+      firstname: firstname || null,
+      lastname: lastname || null,
       password: hashedPassword,
       verificationToken,
       verificationExpires,
@@ -189,13 +210,17 @@ app.post('/auth/register', async (req, res) => {
 
 app.post('/auth/login', async (req, res) => {
   try {
-    const { email, password } = loginSchema.parse(req.body);
+    const { emailOrUsername, password } = loginSchema.parse(req.body);
 
-    // Find user
+    // Find user by email or username
     const userResult = await db
       .select()
       .from(users)
-      .where(eq(users.email, email))
+      .where(
+        emailOrUsername.includes('@')
+          ? eq(users.email, emailOrUsername)
+          : eq(users.username, emailOrUsername)
+      )
       .limit(1);
 
     if (userResult.length === 0) {
@@ -221,16 +246,11 @@ app.post('/auth/login', async (req, res) => {
     // Generate token
     const token = generateToken(user);
 
-    logger.info(`User logged in: ${email}`);
+    logger.info(`User logged in: ${emailOrUsername}`);
 
     res.json({
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        isVerified: user.isVerified
-      },
       token,
+      message: 'Login successful'
     });
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -238,6 +258,122 @@ app.post('/auth/login', async (req, res) => {
     }
 
     logger.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+app.get('/auth/me', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Access token required' });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret') as any;
+
+    const userResult = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, decoded.id))
+      .limit(1);
+
+    if (userResult.length === 0) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = userResult[0];
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        username: user.username,
+        firstname: user.firstname,
+        lastname: user.lastname,
+        avatar: user.avatar,
+        isVerified: user.isVerified
+      }
+    });
+  } catch (error) {
+    if (error instanceof jwt.TokenExpiredError) {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    logger.error('Fetch current user error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update profile endpoint
+const updateProfileSchema = z.object({
+  firstname: z.string().min(1).max(100).optional(),
+  lastname: z.string().min(1).max(100).optional(),
+  name: z.string().min(2).max(255).optional(),
+  avatar: z.string().max(500).optional(),
+});
+
+app.put('/auth/profile', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({ error: 'Access token required' });
+    }
+
+    const token = authHeader.substring(7);
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'default-secret') as any;
+    const userId = decoded.id;
+
+    const updateData = updateProfileSchema.parse(req.body);
+
+    // Update user profile
+    await db
+      .update(users)
+      .set({
+        ...(updateData.firstname !== undefined && { firstname: updateData.firstname }),
+        ...(updateData.lastname !== undefined && { lastname: updateData.lastname }),
+        ...(updateData.name !== undefined && { name: updateData.name }),
+        ...(updateData.avatar !== undefined && { avatar: updateData.avatar }),
+      })
+      .where(eq(users.id, userId));
+
+    // Fetch updated user
+    const updatedUserResult = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId))
+      .limit(1);
+
+    const updatedUser = updatedUserResult[0];
+
+    logger.info(`Profile updated for user: ${userId}`);
+
+    res.json({
+      message: 'Profile updated successfully',
+      user: {
+        id: updatedUser.id,
+        email: updatedUser.email,
+        name: updatedUser.name,
+        username: updatedUser.username,
+        firstname: updatedUser.firstname,
+        lastname: updatedUser.lastname,
+        avatar: updatedUser.avatar,
+        isVerified: updatedUser.isVerified
+      }
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ error: 'Invalid input data', details: error.errors });
+    }
+    if (error instanceof jwt.JsonWebTokenError) {
+      return res.status(401).json({ error: 'Invalid token' });
+    }
+
+    logger.error('Profile update error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

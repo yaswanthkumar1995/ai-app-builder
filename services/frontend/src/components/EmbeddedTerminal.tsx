@@ -98,7 +98,8 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
     const socket = io(socketUrl, {
       auth: {
         token,
-        userId: user?.id
+        userId: user?.id,
+        ...(user?.username ? { username: user.username } : {})
       },
       reconnection: true,
       reconnectionDelay: 1000,
@@ -117,6 +118,7 @@ const EmbeddedTerminal: React.FC<EmbeddedTerminalProps> = ({ isVisible = true })
         userId: user?.id,
         projectId: currentProject?.id,
         userEmail: user?.email,
+        ...(user?.username ? { username: user.username } : {}),
         workspacePath: currentProject?.workspacePath
       });
     });
