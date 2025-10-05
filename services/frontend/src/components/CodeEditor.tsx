@@ -26,6 +26,7 @@ type StoredEditorPreferences = {
   terminalHeight?: number;
   selectedRepo?: string;
   selectedBranch?: string;
+  showChat?: boolean;
 };
 
 const PREFERENCES_STORAGE_KEY = 'ai-app-builder:code-editor-preferences';
@@ -80,10 +81,11 @@ const CodeEditor: React.FC = () => {
     : 300;
   const initialSelectedRepo = initialPreferences.selectedRepo ?? '';
   const initialSelectedBranch = initialPreferences.selectedBranch ?? '';
+  const initialShowChat = initialPreferences.showChat ?? false;
 
   const [editorContent, setEditorContent] = useState(selectedFile?.content || '');
   const [showFileTree, setShowFileTree] = useState(true);
-  const [showChat, setShowChat] = useState(false);
+  const [showChat, setShowChat] = useState(initialShowChat);
   const [showTerminal, setShowTerminal] = useState<boolean>(() => initialShowTerminal);
   const [terminalHeight, setTerminalHeight] = useState<number>(() => initialTerminalHeight);
   const [fileTreeWidth, setFileTreeWidth] = useState(320);
@@ -94,6 +96,7 @@ const CodeEditor: React.FC = () => {
   const editorRef = useRef<any>(null);
   const resizerRef = useRef<HTMLDivElement>(null);
   const editorContainerRef = useRef<HTMLDivElement>(null);
+  const tabContainerRef = useRef<HTMLDivElement>(null);
   const fileTreeWidthRef = useRef(fileTreeWidth);
   const chatWidthRef = useRef(chatWidth);
   const { token, user } = useAuthStore();
@@ -130,6 +133,17 @@ const CodeEditor: React.FC = () => {
     chatWidthRef.current = chatWidth;
   }, [chatWidth]);
 
+  // Auto-scroll to show newly opened tabs
+  useEffect(() => {
+    if (tabContainerRef.current && openTabs.length > 0) {
+      // Scroll to the rightmost position to show the latest tab
+      const container = tabContainerRef.current;
+      setTimeout(() => {
+        container.scrollLeft = container.scrollWidth - container.clientWidth;
+      }, 50); // Small delay to ensure DOM is updated
+    }
+  }, [openTabs.length]);
+
   useEffect(() => {
     if (token && user?.id) {
   gitOpsRef.current = new GitOperations(token, user.id, user.email, currentProject?.id, user.username);
@@ -148,6 +162,7 @@ const CodeEditor: React.FC = () => {
       terminalHeight,
       selectedRepo,
       selectedBranch,
+      showChat,
     };
 
     try {
@@ -155,7 +170,7 @@ const CodeEditor: React.FC = () => {
     } catch (error) {
       console.warn('Failed to persist editor preferences', error);
     }
-  }, [showTerminal, terminalHeight, selectedRepo, selectedBranch]);
+  }, [showTerminal, terminalHeight, selectedRepo, selectedBranch, showChat]);
 
   const fetchRepos = useCallback(async () => {
     if (!token) return [] as any[];
@@ -825,6 +840,11 @@ const CodeEditor: React.FC = () => {
     toast.success(`Added ${file.name} to chat context`);
   }, [selectFile]);
 
+  const handleAddFolderToChat = useCallback((folder: FileNode) => {
+    setShowChat(true);
+    toast.success(`Added folder ${folder.name} to chat context`);
+  }, []);
+
   const handleEditorChange = (value: string | undefined) => {
     setEditorContent(value || '');
     
@@ -905,12 +925,12 @@ const CodeEditor: React.FC = () => {
   };
 
   return (
-    <div ref={editorContainerRef} className="flex h-full bg-gray-900">
+    <div ref={editorContainerRef} className="flex h-full bg-gray-900 overflow-hidden">
       {/* File Tree Sidebar */}
       {showFileTree && (
         <>
           <div
-            className="flex-shrink-0"
+            className="flex-shrink-0 overflow-hidden"
             style={{ width: `${fileTreeWidth}px`, minWidth: MIN_FILETREE_WIDTH, maxWidth: 640 }}
           >
             <FileTree
@@ -932,6 +952,7 @@ const CodeEditor: React.FC = () => {
               onBranchChange={handleBranchChange}
               onRefreshRepos={fetchRepos}
               onAddFileToChat={handleAddFileToChat}
+              onAddFolderToChat={handleAddFolderToChat}
               onCopyFile={handleCopyFile}
               onCutFile={handleCutFile}
               onTerminalToggle={handleTerminalToggle}
@@ -952,243 +973,223 @@ const CodeEditor: React.FC = () => {
         </>
       )}
 
-      {/* Main Editor Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Editor Header */}
-        <div className="border-b border-gray-700 p-2 bg-gray-800">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center space-x-4 overflow-hidden">
-              <button
-                onClick={() => setShowFileTree(!showFileTree)}
-                className="p-2 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white"
-                title="Toggle file tree"
-              >
-                <FolderIcon className="h-5 w-5" />
-              </button>
-              {selectedFile ? (
-                <div className="flex items-center space-x-2 overflow-hidden">
-                  <DocumentIcon className="h-4 w-4 text-blue-400 flex-shrink-0" />
-                  <div className="flex items-center space-x-1 overflow-hidden">
-                    {renderPathBreadcrumb(selectedFile.path)}
-                  </div>
-                </div>
-              ) : (
-                <span className="text-xs text-gray-500">Select a file to start editing</span>
-              )}
-            </div>
-          </div>
-        </div>
-
-        {/* Open File Tabs */}
-        {openTabNodes.length > 0 && (
-          <div className="w-full overflow-hidden">
-            <div className="flex items-stretch bg-gray-900 border-b border-gray-800 overflow-x-auto overflow-y-hidden scrollbar-thin" role="tablist">
-              {openTabNodes.map((tab) => {
-                const isActive = selectedFile?.path === tab.path;
-                return (
-                  <button
-                    key={tab.path}
-                    onClick={() => handleTabSelect(tab.path)}
-                    role="tab"
-                    aria-selected={isActive}
-                    className={`group flex items-center gap-2 px-4 py-2 text-xs font-medium border-r border-gray-800 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
-                      isActive
-                        ? 'bg-gray-900 text-white border-blue-500'
-                        : 'bg-gray-900/70 text-gray-400 hover:text-white hover:bg-gray-800 border-transparent'
-                    }`}
-                  >
-                    <span className="truncate max-w-[140px] text-left">
-                      {tab.name}
-                    </span>
-                    <span
-                      role="button"
-                      aria-label={`Close ${tab.name}`}
-                      className="ml-2 p-1 rounded hover:bg-gray-700 text-gray-500 hover:text-white flex-shrink-0"
-                      onClick={(event) => handleTabClose(event, tab.path)}
-                      onMouseDown={(event) => event.stopPropagation()}
-                    >
-                      <XMarkIcon className="h-3.5 w-3.5" />
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Editor Content */}
-        <div className="flex-1 flex flex-col">
-          {/* Main Editor and Chat Area */}
-          <div className={`flex transition-all duration-300 ${showTerminal ? `flex-1` : 'h-full'}`}>
-            {/* Code Editor Area */}
+      {/* Main Content Area */}
+      <div className="flex-1 flex min-w-0 overflow-hidden">
+        {/* Editor Section */}
+        <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+          {/* Open File Tabs */}
+          {openTabNodes.length > 0 && (
             <div 
-              className={`flex-1 min-w-0 transition-all duration-300 relative`}
-              onContextMenu={handleEditorContextMenu}
+              ref={tabContainerRef}
+              className="flex-shrink-0 bg-gray-900 border-b border-gray-800 w-full overflow-x-auto overflow-y-hidden tab-scrollbar" 
+              style={{ 
+                maxWidth: '100%',
+                scrollbarWidth: 'thin',
+                scrollbarColor: '#6B7280 transparent'
+              }}
             >
-              {selectedFile ? (
-                <>
-                  {isImageFile(selectedFile.path) ? (
-                    <div className="h-full flex items-center justify-center bg-gray-900 p-8 overflow-auto">
-                      <div className="max-w-full max-h-full">
-                        <img 
-                          src={`data:image/${selectedFile.path.split('.').pop()};base64,${btoa(editorContent)}`}
-                          alt={selectedFile.name}
-                          className="max-w-full max-h-full object-contain"
-                          onError={(e) => {
-                            // If base64 fails, try as direct URL or show error
-                            console.error('Failed to load image');
-                          }}
-                        />
-                        <div className="text-center mt-4 text-gray-400 text-sm">
-                          <p>{selectedFile.name}</p>
-                          <p className="text-xs text-gray-500 mt-1">Image files cannot be edited</p>
+              <div className="flex items-stretch" role="tablist" style={{ minWidth: 'fit-content' }}>
+                {openTabNodes.map((tab) => {
+                  const isActive = selectedFile?.path === tab.path;
+                  return (
+                    <button
+                      key={tab.path}
+                      onClick={() => handleTabSelect(tab.path)}
+                      role="tab"
+                      aria-selected={isActive}
+                      className={`group flex items-center gap-1 px-3 py-2 text-xs font-medium border-r border-gray-800 border-b-2 transition-colors whitespace-nowrap flex-shrink-0 ${
+                        isActive
+                          ? 'bg-gray-900 text-white border-blue-500'
+                          : 'bg-gray-900/70 text-gray-400 hover:text-white hover:bg-gray-800 border-transparent'
+                      }`}
+                      style={{ maxWidth: '160px', minWidth: '80px' }}
+                    >
+                      <span className="truncate flex-1 text-left" style={{ maxWidth: '120px' }}>
+                        {tab.name}
+                      </span>
+                      <span
+                        role="button"
+                        aria-label={`Close ${tab.name}`}
+                        className="ml-1 p-0.5 rounded hover:bg-gray-700 text-gray-500 hover:text-white flex-shrink-0"
+                        onClick={(event) => handleTabClose(event, tab.path)}
+                        onMouseDown={(event) => event.stopPropagation()}
+                      >
+                        <XMarkIcon className="h-3 w-3" />
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Editor and Terminal Container */}
+          <div className="flex-1 flex flex-col">
+            {/* Main Editor Area */}
+            <div className={`transition-all duration-300 ${showTerminal ? `flex-1` : 'h-full'}`}>
+              {/* Code Editor Area */}
+              <div 
+                className={`h-full w-full transition-all duration-300 relative`}
+                onContextMenu={handleEditorContextMenu}
+              >
+                {selectedFile ? (
+                  <>
+                    {isImageFile(selectedFile.path) ? (
+                      <div className="h-full flex items-center justify-center bg-gray-900 p-8 overflow-auto">
+                        <div className="max-w-full max-h-full">
+                          <img 
+                            src={`data:image/${selectedFile.path.split('.').pop()};base64,${btoa(editorContent)}`}
+                            alt={selectedFile.name}
+                            className="max-w-full max-h-full object-contain"
+                            onError={(e) => {
+                              // If base64 fails, try as direct URL or show error
+                              console.error('Failed to load image');
+                            }}
+                          />
+                          <div className="text-center mt-4 text-gray-400 text-sm">
+                            <p>{selectedFile.name}</p>
+                            <p className="text-xs text-gray-500 mt-1">Image files cannot be edited</p>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ) : isPdfFile(selectedFile.path) ? (
-                    <div className="h-full flex flex-col bg-gray-900">
-                      <div className="flex-1 overflow-hidden">
-                        <iframe
-                          src={`data:application/pdf;base64,${btoa(editorContent)}`}
-                          className="w-full h-full border-0"
-                          title={selectedFile.name}
-                        />
+                    ) : isPdfFile(selectedFile.path) ? (
+                      <div className="h-full flex flex-col bg-gray-900">
+                        <div className="flex-1 overflow-hidden">
+                          <iframe
+                            src={`data:application/pdf;base64,${btoa(editorContent)}`}
+                            className="w-full h-full border-0"
+                            title={selectedFile.name}
+                          />
+                        </div>
+                        <div className="text-center py-2 bg-gray-800 text-gray-400 text-xs border-t border-gray-700">
+                          <p>{selectedFile.name} - PDF files cannot be edited</p>
+                        </div>
                       </div>
-                      <div className="text-center py-2 bg-gray-800 text-gray-400 text-xs border-t border-gray-700">
-                        <p>{selectedFile.name} - PDF files cannot be edited</p>
-                      </div>
+                    ) : (
+                      <Editor
+                        height="100%"
+                        language={getLanguageFromPath(selectedFile.path)}
+                        value={editorContent}
+                        onChange={handleEditorChange}
+                        theme="vs-dark"
+                        options={{
+                          minimap: { enabled: false },
+                          fontSize: 14,
+                          lineNumbers: 'on',
+                          roundedSelection: false,
+                          scrollBeyondLastLine: false,
+                          automaticLayout: true,
+                          tabSize: 2,
+                          insertSpaces: true,
+                          wordWrap: 'on',
+                          suggestOnTriggerCharacters: true,
+                          acceptSuggestionOnEnter: 'on',
+                          quickSuggestions: true,
+                        }}
+                        onMount={(editor) => {
+                          editorRef.current = editor;
+                        }}
+                      />
+                    )}
+                  </>
+                ) : (
+                  <div className="h-full flex items-center justify-center bg-gray-900">
+                    <div className="text-center text-gray-400">
+                      <div className="text-6xl mb-4">📝</div>
+                      <h3 className="text-xl font-semibold mb-2">No file selected</h3>
+                      <p className="text-sm">Select a file from the sidebar to start editing</p>
+                      <p className="text-xs mt-2">Or create a new file to get started</p>
                     </div>
-                  ) : (
-                    <Editor
-                      height="100%"
-                      language={getLanguageFromPath(selectedFile.path)}
-                      value={editorContent}
-                      onChange={handleEditorChange}
-                      theme="vs-dark"
-                      options={{
-                        minimap: { enabled: false },
-                        fontSize: 14,
-                        lineNumbers: 'on',
-                        roundedSelection: false,
-                        scrollBeyondLastLine: false,
-                        automaticLayout: true,
-                        tabSize: 2,
-                        insertSpaces: true,
-                        wordWrap: 'on',
-                        suggestOnTriggerCharacters: true,
-                        acceptSuggestionOnEnter: 'on',
-                        quickSuggestions: true,
-                      }}
-                      onMount={(editor) => {
-                        editorRef.current = editor;
-                      }}
-                    />
-                  )}
-                </>
-              ) : (
-                <div className="h-full flex items-center justify-center bg-gray-900">
-                  <div className="text-center text-gray-400">
-                    <div className="text-6xl mb-4">📝</div>
-                    <h3 className="text-xl font-semibold mb-2">No file selected</h3>
-                    <p className="text-sm">Select a file from the sidebar to start editing</p>
-                    <p className="text-xs mt-2">Or create a new file to get started</p>
                   </div>
-                </div>
-              )}
+                )}
+              </div>
             </div>
 
-            {/* Chat Panel */}
-            {showChat && (
+            {/* Terminal Panel */}
+            {showTerminal && (
               <>
-                <div
-                  onMouseDown={startChatResize}
-                  className="relative w-2 bg-gray-800 hover:bg-blue-500/80 transition-colors cursor-col-resize flex-shrink-0"
-                  title="Drag to resize chat"
+                {/* Terminal Resizer */}
+                <div 
+                  ref={resizerRef}
+                  className="h-1 bg-gray-700 hover:bg-blue-500 cursor-row-resize transition-colors flex-shrink-0"
+                  title="Drag to resize terminal"
+                />
+                
+                {/* Terminal Content */}
+                <div 
+                  className="bg-gray-900 border-t border-gray-700 flex-shrink-0 transition-all duration-300"
+                  style={{ height: `${terminalHeight}px` }}
                 >
-                  <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center">
-                    <span className="h-10 w-0.5 rounded bg-gray-600/70" />
-                  </span>
-                </div>
-                <div
-                  className="border-l border-gray-700 bg-gray-900 flex flex-col transition-all duration-300 ease-in-out"
-                  style={{ width: `${chatWidth}px`, minWidth: MIN_CHAT_WIDTH, maxWidth: 560 }}
-                >
-                  {/* Chat Header */}
-                  <div className="flex items-center justify-between p-3 border-b border-gray-700 bg-gray-800">
-                    <h3 className="text-sm font-semibold text-white flex items-center">
-                      <ChatBubbleLeftRightIcon className="h-4 w-4 mr-2" />
-                      AI Assistant
-                    </h3>
-                    <button
-                      onClick={() => setShowChat(false)}
-                      className="p-1 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white transition-colors"
-                      title="Close Chat"
-                    >
-                      <XMarkIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                  
-                  {/* Chat Content */}
-                  <div className="flex-1 overflow-hidden">
-                    <SidebarChat 
-                      currentFile={selectedFile ? {
-                        name: selectedFile.name,
-                        path: selectedFile.path,
-                        content: editorContent,
-                        language: getLanguageFromPath(selectedFile.path)
-                      } : undefined}
-                    />
+                  <div className="h-full flex flex-col">
+                    {/* Terminal Header */}
+                    <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
+                      <div className="flex items-center space-x-2">
+                        <CommandLineIcon className="h-4 w-4 text-gray-400" />
+                        <span className="text-sm font-medium text-white">Terminal</span>
+                        {currentProject && (
+                          <span className="text-xs text-gray-400">
+                            - {currentProject.name}
+                          </span>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => setShowTerminal(false)}
+                        className="p-1 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white transition-colors"
+                        title="Close Terminal"
+                      >
+                        <XMarkIcon className="h-4 w-4" />
+                      </button>
+                    </div>
+                    
+                    {/* Terminal Content */}
+                    <div className="flex-1 overflow-hidden">
+                      <EmbeddedTerminal isVisible={showTerminal} />
+                    </div>
                   </div>
                 </div>
               </>
             )}
           </div>
-
-          {/* Terminal Panel */}
-          {showTerminal && (
-            <>
-              {/* Terminal Resizer */}
-              <div 
-                ref={resizerRef}
-                className="h-1 bg-gray-700 hover:bg-blue-500 cursor-row-resize transition-colors flex-shrink-0"
-                title="Drag to resize terminal"
-              />
-              
-              {/* Terminal Content */}
-              <div 
-                className="bg-gray-900 border-t border-gray-700 flex-shrink-0 transition-all duration-300"
-                style={{ height: `${terminalHeight}px` }}
-              >
-                <div className="h-full flex flex-col">
-                  {/* Terminal Header */}
-                  <div className="flex items-center justify-between px-4 py-2 bg-gray-800 border-b border-gray-700">
-                    <div className="flex items-center space-x-2">
-                      <CommandLineIcon className="h-4 w-4 text-gray-400" />
-                      <span className="text-sm font-medium text-white">Terminal</span>
-                      {currentProject && (
-                        <span className="text-xs text-gray-400">
-                          - {currentProject.name}
-                        </span>
-                      )}
-                    </div>
-                    <button
-                      onClick={() => setShowTerminal(false)}
-                      className="p-1 hover:bg-gray-700 rounded-md text-gray-400 hover:text-white transition-colors"
-                      title="Close Terminal"
-                    >
-                      <XMarkIcon className="h-4 w-4" />
-                    </button>
-                  </div>
-                  
-                  {/* Terminal Content */}
-                  <div className="flex-1 overflow-hidden">
-                    <EmbeddedTerminal isVisible={showTerminal} />
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
         </div>
+
+        {/* Chat Panel - Always at top level */}
+        {showChat && (
+          <>
+            <div
+              onMouseDown={startChatResize}
+              className="relative w-2 bg-gray-800 hover:bg-blue-500/80 transition-colors cursor-col-resize flex-shrink-0"
+              title="Drag to resize chat"
+            >
+              <span className="absolute inset-y-0 left-1/2 -translate-x-1/2 flex items-center justify-center">
+                <span className="h-10 w-0.5 rounded bg-gray-600/70" />
+              </span>
+            </div>
+            <div
+              className="border-l border-gray-700 bg-gray-900 flex flex-col transition-all duration-300 ease-in-out"
+              style={{ width: `${chatWidth}px`, minWidth: MIN_CHAT_WIDTH, maxWidth: 560 }}
+            >
+              {/* Chat Content - SidebarChat has its own header */}
+              <div className="flex-1 overflow-hidden relative">
+                {/* Close button overlay */}
+                <button
+                  onClick={() => setShowChat(false)}
+                  className="absolute top-3 right-4 z-50 p-1.5 hover:bg-gray-700/50 rounded-md text-gray-400 hover:text-white transition-colors"
+                  title="Close Chat"
+                >
+                  <XMarkIcon className="h-5 w-5" />
+                </button>
+                <SidebarChat 
+                  currentFile={selectedFile ? {
+                    name: selectedFile.name,
+                    path: selectedFile.path,
+                    content: editorContent,
+                    language: getLanguageFromPath(selectedFile.path)
+                  } : undefined}
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Editor Context Menu */}

@@ -31,6 +31,7 @@ interface FileTreeProps {
   onBranchChange?: (branch: string) => void;
   onRefreshRepos?: () => void;
   onAddFileToChat?: (file: FileNode) => void;
+  onAddFolderToChat?: (folder: FileNode) => void;
   onCopyFile?: (file: FileNode) => void;
   onCutFile?: (file: FileNode) => void;
   // Terminal and Chat toggles
@@ -59,6 +60,7 @@ const FileTree: React.FC<FileTreeProps> = ({
   onBranchChange,
   onRefreshRepos,
   onAddFileToChat,
+  onAddFolderToChat,
   onCopyFile,
   onCutFile,
   onTerminalToggle,
@@ -218,15 +220,19 @@ const FileTree: React.FC<FileTreeProps> = ({
     setPendingNewNodePath(newNodePath);
   };
 
-  // Filter repos and branches based on search
-  const filteredRepos = repos.filter(r => 
-    r.name.toLowerCase().includes(repoSearchTerm.toLowerCase()) ||
-    r.fullName.toLowerCase().includes(repoSearchTerm.toLowerCase())
-  );
+  // Filter and sort repos and branches based on search
+  const filteredRepos = repos
+    .filter(r => 
+      r.name.toLowerCase().includes(repoSearchTerm.toLowerCase()) ||
+      r.fullName.toLowerCase().includes(repoSearchTerm.toLowerCase())
+    )
+    .sort((a, b) => a.name.localeCompare(b.name));
   
-  const filteredBranches = branches.filter(b => 
-    b.toLowerCase().includes(branchSearchTerm.toLowerCase())
-  );
+  const filteredBranches = branches
+    .filter(b => 
+      b.toLowerCase().includes(branchSearchTerm.toLowerCase())
+    )
+    .sort((a, b) => a.localeCompare(b));
 
   // Get display name for selected repo
   const getRepoDisplayName = () => {
@@ -293,8 +299,66 @@ const FileTree: React.FC<FileTreeProps> = ({
     }
   }, [files, pendingNewNodePath]);
 
+  // Handle keyboard shortcuts for file operations
+  useEffect(() => {
+    const handleKeyboardShortcuts = (e: KeyboardEvent) => {
+      // Only process if a file is selected and not editing
+      if (!selectedFile || editingFile) return;
+
+      const selectedNode = findFileNode(files, selectedFile);
+      if (!selectedNode) return;
+
+      // F2: Rename
+      if (e.key === 'F2' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        e.preventDefault();
+        startEditing(selectedNode.path, selectedNode.name);
+        return;
+      }
+
+      // Delete: Delete file/folder
+      if (e.key === 'Delete' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        e.preventDefault();
+        onFileDelete(selectedNode.path);
+        return;
+      }
+
+      // Ctrl+A or Cmd+A: Add to chat (file or folder)
+      if ((e.ctrlKey || e.metaKey) && e.key === 'a' && !e.shiftKey) {
+        e.preventDefault();
+        if (selectedNode.type === 'file' && onAddFileToChat) {
+          onAddFileToChat(selectedNode);
+        } else if (selectedNode.type === 'folder' && onAddFolderToChat) {
+          onAddFolderToChat(selectedNode);
+        }
+        return;
+      }
+
+      // Ctrl+C or Cmd+C: Copy
+      if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !e.shiftKey) {
+        if (onCopyFile) {
+          e.preventDefault();
+          onCopyFile(selectedNode);
+        }
+        return;
+      }
+
+      // Ctrl+X or Cmd+X: Cut
+      if ((e.ctrlKey || e.metaKey) && e.key === 'x' && !e.shiftKey) {
+        if (onCutFile) {
+          e.preventDefault();
+          onCutFile(selectedNode);
+        }
+        return;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyboardShortcuts);
+    return () => window.removeEventListener('keydown', handleKeyboardShortcuts);
+  }, [selectedFile, editingFile, files, onAddFileToChat, onAddFolderToChat, onCopyFile, onCutFile, onFileDelete]);
+
   const handleContextMenu = (event: React.MouseEvent, node: FileNode) => {
     event.preventDefault();
+    event.stopPropagation();
 
     if (node.type === 'file') {
       onFileSelect(node);
@@ -640,41 +704,57 @@ const FileTree: React.FC<FileTreeProps> = ({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 w-48 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1"
+          className="fixed z-50 w-56 bg-gray-800 border border-gray-700 rounded-md shadow-lg py-1"
           style={{ top: contextMenu.y, left: contextMenu.x }}
           onClick={(event) => event.stopPropagation()}
         >
           <button
-            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between"
             onClick={() => {
               closeContextMenu();
               setTimeout(() => startEditing(contextMenu.node.path, contextMenu.node.name), 0);
             }}
           >
-            Rename
+            <span>Rename</span>
+            <span className="text-xs text-gray-400">F2</span>
           </button>
           <button
-            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between"
             onClick={() => {
               closeContextMenu();
               onFileDelete(contextMenu.node.path);
             }}
           >
-            Delete
+            <span>Delete</span>
+            <span className="text-xs text-gray-400">Del</span>
           </button>
           {contextMenu.node.type === 'file' && onAddFileToChat && (
             <button
-              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between"
               onClick={() => {
                 closeContextMenu();
                 onAddFileToChat(contextMenu.node);
               }}
             >
-              Add file to chat
+              <span>Add file to chat</span>
+              <span className="text-xs text-gray-400">Ctrl+A</span>
             </button>
           )}
+          {contextMenu.node.type === 'folder' && onAddFolderToChat && (
+            <button
+              className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between"
+              onClick={() => {
+                closeContextMenu();
+                onAddFolderToChat(contextMenu.node);
+              }}
+            >
+              <span>Add folder to chat</span>
+              <span className="text-xs text-gray-400">Ctrl+A</span>
+            </button>
+          )}
+          <div className="border-t border-gray-700 my-1"></div>
           <button
-            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between"
             onClick={() => {
               closeContextMenu();
               if (onCopyFile) {
@@ -682,10 +762,11 @@ const FileTree: React.FC<FileTreeProps> = ({
               }
             }}
           >
-            Copy
+            <span>Copy</span>
+            <span className="text-xs text-gray-400">Ctrl+C</span>
           </button>
           <button
-            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700"
+            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-700 flex items-center justify-between"
             onClick={() => {
               closeContextMenu();
               if (onCutFile) {
@@ -693,7 +774,8 @@ const FileTree: React.FC<FileTreeProps> = ({
               }
             }}
           >
-            Cut
+            <span>Cut</span>
+            <span className="text-xs text-gray-400">Ctrl+X</span>
           </button>
         </div>
       )}

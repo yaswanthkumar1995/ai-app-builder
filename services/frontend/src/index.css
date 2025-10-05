@@ -49,6 +49,29 @@ code {
   border-radius: 4px;
 }
 
+/* Extra thin scrollbar for file tabs */
+.tab-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(107, 114, 128) transparent;
+}
+
+.tab-scrollbar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.tab-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.tab-scrollbar::-webkit-scrollbar-thumb {
+  background: rgb(107, 114, 128);
+  border-radius: 2px;
+}
+
+.tab-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgb(156, 163, 175);
+}
+
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: rgb(75, 85, 99);
 }
