@@ -9,6 +9,7 @@ const fs = require('fs');
 const fsPromises = fs.promises;
 const path = require('path');
 const simpleGit = require('simple-git');
+const logger = require('./logger');
 
 const SAFE_GIT_REF_REGEX = /^[A-Za-z0-9._/-]{1,255}$/;
 
@@ -148,7 +149,10 @@ async function getGithubCredentials(userId) {
       appType: github.app_type || null,
     };
   } catch (error) {
-    console.error('Error retrieving GitHub credentials:', error.message || error);
+    logger.error('Error retrieving GitHub credentials', { 
+      error: error.message || error,
+      stack: error.stack 
+    });
     return {
       token: null,
       installationId: null,
@@ -168,7 +172,10 @@ function loadWorkspaceState() {
       return JSON.parse(data);
     }
   } catch (error) {
-    console.error('Error loading workspace state:', error);
+    logger.error('Error loading workspace state', { 
+      error: error.message,
+      stack: error.stack 
+    });
   }
   return {};
 }
@@ -178,7 +185,10 @@ function saveWorkspaceState(state) {
   try {
     fs.writeFileSync(WORKSPACE_STATE_FILE, JSON.stringify(state, null, 2));
   } catch (error) {
-    console.error('Error saving workspace state:', error);
+    logger.error('Error saving workspace state', { 
+      error: error.message,
+      stack: error.stack 
+    });
   }
 }
 
@@ -239,9 +249,9 @@ app.get('/socket.io-test', (req, res) => {
 app.post('/terminal/create-session', async (req, res) => {
   try {
     const { userId, projectId, username: providedUsername, workspacePath } = req.body;
-    console.log(`REST: Creating terminal session for user: ${userId}`);
+    logger.info('REST: Creating terminal session', { userId, projectId });
     if (workspacePath) {
-      console.log(`Using workspace path: ${workspacePath}`);
+      logger.debug('Using workspace path', { workspacePath });
     }
     
     const headerUsername = typeof req.headers['x-username'] === 'string' ? req.headers['x-username'] : undefined;
@@ -258,7 +268,10 @@ app.post('/terminal/create-session', async (req, res) => {
 
     // Check if session already exists and is valid
     if (sessionToUse) {
-      console.log(`REST: Reusing existing terminal session for user: ${userId}`);
+      logger.info('REST: Reusing existing terminal session', { 
+        userId, 
+        sessionId: sessionToUse.sessionId 
+      });
       return res.json({
         success: true,
         id: sessionToUse.sessionId,
@@ -292,7 +305,10 @@ app.post('/terminal/create-session', async (req, res) => {
       username: sessionInfo.username
     });
   } catch (error) {
-    console.error('REST: Error creating terminal session:', error);
+    logger.error('REST: Error creating terminal session', { 
+      error: error.message,
+      stack: error.stack 
+    });
     res.status(500).json({
       success: false,
       error: error.message
@@ -303,7 +319,7 @@ app.post('/terminal/create-session', async (req, res) => {
 app.delete('/terminal/session/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    console.log(`REST: Deleting terminal session for user: ${userId}`);
+    logger.info('REST: Deleting terminal session', { userId });
     
     const success = await terminalManager.deleteUserSession(userId);
     
@@ -311,7 +327,7 @@ app.delete('/terminal/session/:userId', async (req, res) => {
       success
     });
   } catch (error) {
-    console.error('REST: Error deleting terminal session:', error);
+    logger.error('REST: Error deleting terminal session', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -344,7 +360,7 @@ app.get('/terminal/session/:userId', (req, res) => {
       lastAccessedAt: sessionInfo.createdAt
     });
   } catch (error) {
-    console.error('REST: Error getting terminal session:', error);
+    logger.error('REST: Error getting terminal session', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -405,7 +421,7 @@ app.post('/git/clone', async (req, res) => {
     // Ensure the user workspace directory exists
     if (!fs.existsSync(userWorkspace)) {
       await fsPromises.mkdir(userWorkspace, { recursive: true });
-      console.log(`Created user workspace: ${userWorkspace}`);
+      logger.info('Created user workspace', { workspace: userWorkspace, username });
     }
 
     const repoAlreadyExists = fs.existsSync(projectPath);
@@ -431,7 +447,7 @@ app.post('/git/clone', async (req, res) => {
         const origin = remotes.find((remote) => remote.name === 'origin');
         normalizedOrigin = normalizeRepoUrl(origin?.refs.fetch || origin?.refs.push || '');
       } catch (remoteError) {
-        console.warn('Unable to read existing git remotes, re-cloning repository:', remoteError.message || remoteError);
+        logger.warn('Unable to read existing git remotes, re-cloning repository', { error: remoteError.message || remoteError });
       }
 
       if (!normalizedOrigin || normalizedOrigin !== repoIdentifier) {
@@ -443,7 +459,7 @@ app.post('/git/clone', async (req, res) => {
           await projectGit.checkout(branch);
           await projectGit.pull('origin', branch, { '--ff-only': null });
         } catch (syncError) {
-          console.warn('Failed to update existing repository cleanly, re-cloning:', syncError.message || syncError);
+          logger.warn('Failed to update existing repository cleanly, re-cloning', { error: syncError.message || syncError });
           await fsPromises.rm(projectPath, { recursive: true, force: true });
           await cloneRepository(branch);
         }
@@ -475,7 +491,7 @@ app.post('/git/clone', async (req, res) => {
       lastUpdated: new Date().toISOString()
     });
 
-    console.log(`✅ Repository cloned to: ${projectPath} for user: ${username}`);
+    logger.info('Repository cloned successfully', { projectPath, username });
 
     res.json({
       success: true,
@@ -485,7 +501,7 @@ app.post('/git/clone', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Git clone error:', error);
+    logger.error('Git clone error', { error: error.message, username });
     
     // Check for specific error types
     let errorMessage = error.message;
@@ -523,7 +539,7 @@ app.post('/git/checkout', async (req, res) => {
     
     // If no session exists, create one
     if (!sessionInfo) {
-      console.log(`📝 No session found for user ${userId}, creating one...`);
+      logger.info('No session found for user, creating one', { userId });
       try {
         const headerUsername = typeof req.headers['x-username'] === 'string'
           ? req.headers['x-username']
@@ -535,9 +551,9 @@ app.post('/git/checkout', async (req, res) => {
           userId
         });
         sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
-        console.log(`✅ Session created for user ${userId}`);
+        logger.info('Session created for user', { userId });
       } catch (error) {
-        console.error('❌ Failed to create session:', error);
+        logger.error('Failed to create session', { error: error.message, userId });
         return res.status(500).json({
           success: false,
           error: 'Failed to create terminal session: ' + error.message
@@ -570,7 +586,7 @@ app.post('/git/checkout', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Git checkout error:', error);
+    logger.error('Git checkout error', { error: error.message, branch });
     res.status(500).json({
       success: false,
       error: error.message
@@ -585,7 +601,7 @@ app.get('/git/status/:userId', async (req, res) => {
     let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
       // If no session, return empty status instead of error
-      console.log(`⚠️ No session found for git status request from user ${userId}`);
+      logger.warn('No session found for git status request', { userId });
       return res.json({ 
         success: true, 
         status: null,
@@ -602,7 +618,7 @@ app.get('/git/status/:userId', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Git status error:', error);
+    logger.error('Git status error', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -623,7 +639,7 @@ app.post('/git/commit', async (req, res) => {
 
     let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      console.log(`📝 No session found for user ${userId}, creating one...`);
+      logger.info('No session found for git commit, creating one', { userId });
       try {
         const headerUsername = typeof req.headers['x-username'] === 'string'
           ? req.headers['x-username']
@@ -664,7 +680,7 @@ app.post('/git/commit', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Git commit error:', error);
+    logger.error('Git commit error', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -685,7 +701,7 @@ app.post('/git/push', async (req, res) => {
 
     let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      console.log(`📝 No session found for user ${userId}, creating one...`);
+      logger.info('No session found for git push, creating one', { userId });
       try {
         const headerUsername = typeof req.headers['x-username'] === 'string'
           ? req.headers['x-username']
@@ -719,7 +735,7 @@ app.post('/git/push', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Git push error:', error);
+    logger.error('Git push error', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -738,7 +754,7 @@ app.get('/workspace/state/:userId', (req, res) => {
       state: userState
     });
   } catch (error) {
-    console.error('Error getting workspace state:', error);
+    logger.error('Error getting workspace state', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -753,7 +769,7 @@ app.get('/workspace/files/:userId', async (req, res) => {
     let sessionInfo = userSessions.get(userId);
     
     if (!sessionInfo) {
-      console.log(`📂 No session found for workspace files request from user ${userId}, creating one...`);
+      logger.info('No session found for workspace files request, creating one', { userId });
       // Get project ID and user email from headers (if available from API Gateway)
       const projectId = req.headers['x-project-id'];
       const userEmail = typeof req.headers['x-user-email'] === 'string' ? req.headers['x-user-email'] : undefined;
@@ -767,7 +783,7 @@ app.get('/workspace/files/:userId', async (req, res) => {
       
       try {
         sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
-        console.log(`✅ Session created successfully for workspace files request`);
+        logger.info('Session created successfully for workspace files request', { userId });
       } catch (error) {
         return res.status(500).json({
           success: false,
@@ -782,7 +798,7 @@ app.get('/workspace/files/:userId', async (req, res) => {
     // Security check: ensure workspace path is within user's home directory
     const userHome = `/workspaces/${username}`;
     if (!workspacePath.startsWith(userHome)) {
-      console.error(`Security violation: User ${username} attempted to access ${workspacePath}`);
+      logger.error('Security violation: User attempted to access unauthorized path', { username, workspacePath });
       return res.status(403).json({
         success: false,
         error: 'Access denied: Cannot access files outside your workspace'
@@ -803,11 +819,11 @@ app.get('/workspace/files/:userId', async (req, res) => {
       try {
         entries = fs.readdirSync(dirPath, { withFileTypes: true });
       } catch (err) {
-        console.error(`Error reading directory ${dirPath}:`, err);
+        logger.error('Error reading directory', { dirPath, error: err.message });
         return;
       }
 
-      console.log(`📂 Reading directory: ${dirPath}, found ${entries.length} entries`);
+      logger.info('Reading directory', { dirPath, entriesCount: entries.length });
 
       for (const entry of entries) {
         // Skip noisy/system directories
@@ -840,7 +856,7 @@ app.get('/workspace/files/:userId', async (req, res) => {
               fileItem.content = fs.readFileSync(fullPath, 'utf8');
             }
           } catch (err) {
-            console.warn(`Could not read file content for ${fullPath}:`, err.message);
+            logger.warn('Could not read file content', { fullPath, error: err.message });
           }
 
           collectedFiles.push(fileItem);
@@ -849,14 +865,14 @@ app.get('/workspace/files/:userId', async (req, res) => {
     };
 
     traverseWorkspace(workspacePath);
-    console.log(`✅ Collected ${collectedFiles.length} workspace entries`);
+    logger.info('Collected workspace entries', { entriesCount: collectedFiles.length });
 
     res.json({
       success: true,
       files: collectedFiles
     });
   } catch (error) {
-    console.error('Error listing workspace files:', error);
+    logger.error('Error listing workspace files', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -872,7 +888,7 @@ app.get('/workspace/file/:userId/*', async (req, res) => {
     
     let sessionInfo = userSessions.get(userId);
     if (!sessionInfo) {
-      console.log(`📄 No session found for file content request from user ${userId}, creating one...`);
+      logger.info('No session found for file content request, creating one', { userId });
       // Get project ID and user email from headers (if available from API Gateway)
       const projectId = req.headers['x-project-id'];
       const userEmail = typeof req.headers['x-user-email'] === 'string' ? req.headers['x-user-email'] : undefined;
@@ -886,7 +902,7 @@ app.get('/workspace/file/:userId/*', async (req, res) => {
       
       try {
         sessionInfo = await terminalManager.createUserSession(userId, projectId, resolvedUsername);
-        console.log(`✅ Session created successfully for file content request`);
+        logger.info('Session created successfully for file content request', { userId });
       } catch (error) {
         return res.status(500).json({
           success: false,
@@ -901,7 +917,7 @@ app.get('/workspace/file/:userId/*', async (req, res) => {
     
     // Security check: ensure the path is within user's home directory
     if (!fullPath.startsWith(userHome)) {
-      console.error(`Security violation: User ${username} attempted to access ${fullPath}`);
+      logger.error('Security violation: User attempted to access unauthorized file', { username, fullPath });
       return res.status(403).json({
         success: false,
         error: 'Access denied: Cannot access files outside your workspace'
@@ -931,7 +947,7 @@ app.get('/workspace/file/:userId/*', async (req, res) => {
       content
     });
   } catch (error) {
-    console.error('Error reading file:', error);
+    logger.error('Error reading file', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -952,7 +968,7 @@ app.post('/workspace/state/:userId', (req, res) => {
       message: 'Workspace state updated successfully'
     });
   } catch (error) {
-    console.error('Error updating workspace state:', error);
+    logger.error('Error updating workspace state', { error: error.message });
     res.status(500).json({
       success: false,
       error: error.message
@@ -985,15 +1001,17 @@ class TerminalManager {
         const resolvedStatePath = path.resolve(userState.workspacePath);
         if (resolvedStatePath.startsWith(`${workspaceRoot}`)) {
           workingDir = resolvedStatePath;
-          console.log(`Restoring previous workspace: ${workingDir}`);
+          logger.info('Restoring previous workspace', { workingDir });
         }
       }
 
       const homeDir = workspaceRoot;
 
-  console.log(`Creating PTY terminal session for user: ${resolvedUsername}`);
-      console.log(`Home directory: ${homeDir}`);
-      console.log(`Initial working directory: ${workingDir}`);
+  logger.info('Creating PTY terminal session', { 
+    user: resolvedUsername, 
+    homeDir, 
+    workingDir 
+  });
       
       // Create user account if it doesn't exist
   await this.createSystemUser(resolvedUsername, homeDir, workingDir);
@@ -1010,7 +1028,7 @@ class TerminalManager {
         }
         await this.executeCommand(`chmod 700 ${homeDir}`);
       } catch (error) {
-        console.log('Permission setting failed, continuing...');
+        logger.warn('Permission setting failed, continuing');
       }
       
       // Create a restricted shell wrapper script that sources bashrc
@@ -1209,17 +1227,17 @@ exec /bin/bash --rcfile "${bashrcPath}" -i
               if (currentBranch.current !== userState.currentBranch) {
                 try {
                   await git.checkout(userState.currentBranch);
-                  console.log(`Restored git branch: ${userState.currentBranch}`);
+                  logger.info('Restored git branch', { branch: userState.currentBranch });
                   writeInfoToTerminal({ ptyProcess }, `Restored to branch: ${userState.currentBranch}`);
                 } catch (branchError) {
-                  console.log(`Could not restore branch ${userState.currentBranch}:`, branchError.message);
+                  logger.warn('Could not restore branch', { branch: userState.currentBranch, error: branchError.message });
                 }
               } else {
-                console.log(`Already on correct branch: ${userState.currentBranch}`);
+                logger.info('Already on correct branch', { branch: userState.currentBranch });
               }
             }
           } catch (gitError) {
-            console.log('Git state restoration failed:', gitError.message);
+            logger.warn('Git state restoration failed', { error: gitError.message });
           }
         }
       }, 2000); // Increased timeout to allow git operations
@@ -1235,11 +1253,11 @@ exec /bin/bash --rcfile "${bashrcPath}" -i
       
       userSessions.set(userId, sessionInfo);
       
-  console.log(`PTY terminal session created for ${resolvedUsername}`);
+  logger.info('PTY terminal session created', { username: resolvedUsername });
       return sessionInfo;
       
     } catch (error) {
-      console.error('Error creating user session:', error);
+      logger.error('Error creating user session', { error: error.message });
       throw error;
     }
   }
@@ -1254,7 +1272,7 @@ exec /bin/bash --rcfile "${bashrcPath}" -i
       });
 
       if (!userExists) {
-        console.log(`Creating system user: ${username} with home: ${homeDir}`);
+        logger.info('Creating system user', { username, homeDir });
         
         // Create the home directory first with proper permissions
         await this.ensureDirectory(homeDir);
@@ -1370,12 +1388,12 @@ cd ${workingDir}
         await this.executeCommand(`chown -R ${username}:${username} ${homeDir}`);
         await this.executeCommand(`chmod 755 ${homeDir}`);
         
-        console.log(`User ${username} created successfully`);
+        logger.info('User created successfully', { username });
       } else {
-        console.log(`User ${username} already exists`);
+        logger.info('User already exists', { username });
       }
     } catch (error) {
-      console.error(`Error creating user ${username}:`, error);
+      logger.error('Error creating user', { username, error: error.message });
       // Don't throw - continue anyway
     }
   }
@@ -1392,7 +1410,7 @@ cd ${workingDir}
     return new Promise((resolve, reject) => {
       exec(command, (error, stdout, stderr) => {
         if (error) {
-          console.error(`Command failed: ${command}`, error);
+          logger.error('Command failed', { command, error: error.message });
           reject(error);
         } else {
           resolve({ stdout, stderr });
@@ -1405,34 +1423,34 @@ cd ${workingDir}
     const sessionInfo = userSessions.get(userId);
     if (sessionInfo) {
       try {
-        console.log(`Deleting PTY session and user: ${sessionInfo.username}`);
+        logger.info('Deleting PTY session and user', { username: sessionInfo.username });
         
         // Kill the PTY process
         if (sessionInfo.ptyProcess && !sessionInfo.ptyProcess.killed) {
           sessionInfo.ptyProcess.kill();
-          console.log(`PTY process killed for ${sessionInfo.username}`);
+          logger.info('PTY process killed', { username: sessionInfo.username });
         }
         
         // Kill any processes running as this user
         try {
           await this.executeCommand(`pkill -u ${sessionInfo.username}`);
         } catch (error) {
-          console.log('No processes to kill for user');
+          logger.info('No processes to kill for user');
         }
         
         // Delete the user from the system
         try {
           await this.executeCommand(`userdel -r ${sessionInfo.username}`);
-          console.log(`System user ${sessionInfo.username} deleted`);
+          logger.info('System user deleted', { username: sessionInfo.username });
         } catch (error) {
-          console.log('Failed to delete system user, continuing...');
+          logger.warn('Failed to delete system user, continuing');
         }
         
         userSessions.delete(userId);
-        console.log(`Session deleted for user ${userId}`);
+        logger.info('Session deleted for user', { userId });
         return true;
       } catch (error) {
-        console.error('Error deleting session:', error);
+        logger.error('Error deleting session', { error: error.message });
         return false;
       }
     }
@@ -1471,23 +1489,27 @@ io.on('connection', (socket) => {
     ? socket.handshake.auth.username
     : undefined;
   const hasUserId = Boolean(socket.handshake.auth?.userId);
-  console.log('🔌 Client connected:', socket.id, 'username:', authUsername || 'unknown', 'userId-present:', hasUserId);
+  logger.info('Client connected', { 
+    socketId: socket.id, 
+    username: authUsername || 'unknown', 
+    hasUserId 
+  });
   if (socket.handshake.address) {
-    console.log('📍 Client address:', socket.handshake.address);
+    logger.info('Client address', { address: socket.handshake.address });
   }
 
   socket.on('create-terminal', async (data) => {
     try {
       const { userId, projectId, workspacePath } = data;
       const requestUsername = typeof data?.username === 'string' ? data.username : undefined;
-      console.log('📥 Received create-terminal request:', {
+      logger.info('Received create-terminal request', {
         projectId: projectId ?? 'unknown',
         workspacePath: workspacePath ?? 'default',
         username: requestUsername || authUsername || 'unknown',
         userIdPresent: Boolean(userId)
       });
       if (workspacePath) {
-        console.log(`📂 Using workspace path: ${workspacePath}`);
+        logger.info('Using workspace path', { workspacePath });
       }
 
       const existingSession = userSessions.get(userId);
@@ -1508,7 +1530,7 @@ io.on('connection', (socket) => {
         workspacePath
       );
       
-      console.log(`🚀 Creating PTY terminal for username: ${resolvedUsername}`);
+      logger.info('Creating PTY terminal', { username: resolvedUsername });
       
       // Set up PTY data streaming
       const ptyProcess = sessionInfo.ptyProcess;
@@ -1518,21 +1540,21 @@ io.on('connection', (socket) => {
       });
       
       ptyProcess.onExit((exitCode, signal) => {
-        console.log(`PTY process exited with code ${exitCode}, signal ${signal}`);
+        logger.info('PTY process exited', { exitCode, signal });
         socket.emit('terminal-exit', { exitCode, signal });
       });
       
-      console.log('✅ Terminal session created successfully');
+      logger.info('Terminal session created successfully');
       socket.emit('terminal-created', {
         success: true,
         sessionId: sessionInfo.sessionId,
         username: sessionInfo.username,
         workingDir: sessionInfo.workingDir
       });
-      console.log('📤 Sent terminal-created event to client');
+      logger.info('Sent terminal-created event to client');
 
     } catch (error) {
-      console.error('❌ Error creating terminal:', error);
+      logger.error('Error creating terminal', { error: error.message });
       socket.emit('terminal-error', {
         error: error.message
       });
@@ -1545,7 +1567,7 @@ io.on('connection', (socket) => {
       const terminalInput = input || inputData; // Support both property names
       terminalManager.writeToTerminal(userId, terminalInput);
     } catch (error) {
-      console.error('Error writing to terminal:', error);
+      logger.error('Error writing to terminal', { error: error.message });
       socket.emit('terminal-error', {
         error: error.message
       });
@@ -1557,7 +1579,7 @@ io.on('connection', (socket) => {
       const { userId, cols, rows } = data;
       terminalManager.resizeTerminal(userId, cols, rows);
     } catch (error) {
-      console.error('Error resizing terminal:', error);
+      logger.error('Error resizing terminal', { error: error.message });
     }
   });
 
@@ -1571,7 +1593,7 @@ io.on('connection', (socket) => {
       });
 
     } catch (error) {
-      console.error('Error deleting terminal:', error);
+      logger.error('Error deleting terminal', { error: error.message });
       socket.emit('terminal-error', {
         error: error.message
       });
@@ -1579,7 +1601,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
+    logger.info('Client disconnected', { socketId: socket.id });
   });
 });
 
@@ -1594,5 +1616,5 @@ app.get('/health', (req, res) => {
 
 const PORT = process.env.PORT || 3004;
 server.listen(PORT, () => {
-  console.log(`Terminal service running on port ${PORT}`);
+  logger.info('Terminal service running', { port: PORT });
 });

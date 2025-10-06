@@ -11,6 +11,8 @@ import { authMiddleware } from './middleware/auth';
 import { errorHandler } from './middleware/errorHandler';
 import { logger } from './utils/logger';
 import { setupWebSocket } from './websocket/socketHandler';
+import nodemailer from 'nodemailer';
+import { body, validationResult } from 'express-validator';
 
 dotenv.config();
 
@@ -30,7 +32,7 @@ app.get('/health', (req, res) => {
 
 // Terminal Service routes - MUST be before other middleware to avoid conflicts
 app.use('/terminal', (req, res, next) => {
-  console.log('🔥 Terminal request received:', req.method, req.url);
+  logger.info('🔥 Terminal request received', { method: req.method, url: req.url });
   next();
 }, createProxyMiddleware({
   target: 'http://terminal-service:3004',
@@ -39,24 +41,24 @@ app.use('/terminal', (req, res, next) => {
   timeout: 60000, // 60 second timeout for terminal operations
   proxyTimeout: 60000,
   onProxyReq: (proxyReq, req, res) => {
-    console.log('🚀 Proxying terminal request to:', proxyReq.getHeader('host'), proxyReq.path);
+    logger.info('🚀 Proxying terminal request', { host: proxyReq.getHeader('host'), path: proxyReq.path });
     // Set longer timeout on the socket
     if (proxyReq.socket) {
       proxyReq.socket.setTimeout(60000);
     }
   },
   onProxyRes: (proxyRes, req, res) => {
-    console.log('✅ Terminal proxy response:', proxyRes.statusCode);
+    logger.info('✅ Terminal proxy response', { statusCode: proxyRes.statusCode });
   },
   onError: (err, req, res) => {
-    console.error('❌ Terminal proxy error:', err);
+    logger.error('❌ Terminal proxy error', { error: err.message, stack: err.stack });
   }
 }));
 
 // Auth routes (no auth middleware needed, no rate limiting)
 // Updated to maintain consistent routing with auth-service
 app.use('/api/auth', (req, res, next) => {
-  console.log('Auth request received:', req.method, req.url);
+  logger.info('Auth request received', { method: req.method, url: req.url });
   next();
 }, createProxyMiddleware({
   target: process.env.AUTH_SERVICE_URL || 'http://auth-service:3001',
@@ -67,13 +69,13 @@ app.use('/api/auth', (req, res, next) => {
     '^/api/auth': '/auth'
   },
   onProxyReq: (proxyReq, req, res) => {
-    console.log('Proxying request to:', proxyReq.getHeader('host'), proxyReq.path);
+    logger.info('Proxying auth request', { host: proxyReq.getHeader('host'), path: proxyReq.path });
   },
   onProxyRes: (proxyRes, req, res) => {
-    console.log('Proxy response:', proxyRes.statusCode);
+    logger.info('Auth proxy response', { statusCode: proxyRes.statusCode });
   },
   onError: (err, req, res) => {
-    console.error('Proxy error:', err);
+    logger.error('Auth proxy error', { error: err.message, stack: err.stack });
   }
 }));
 
@@ -105,12 +107,96 @@ app.use('/api/', (req, res, next) => {
 
 // Protected routes - apply auth middleware (excluding auth routes)
 app.use('/api', (req, res, next) => {
-  // Skip auth middleware for auth routes only
-  if (req.path.startsWith('/api/auth')) {
+  // Skip auth middleware for public routes
+  if (req.path.startsWith('/auth') || req.path === '/contact') {
     return next();
   }
   // Apply auth middleware to all other routes
   authMiddleware(req, res, next);
+});
+
+const createEmailTransporter = () => {
+  const host = process.env.SMTP_HOST || 'smtp.gmail.com';
+  const port = parseInt(process.env.SMTP_PORT || '587', 10);
+  const user = process.env.SMTP_USER;
+  const pass = process.env.SMTP_PASS;
+  const secure = process.env.SMTP_SECURE === 'true' || port === 465;
+
+  if (!user || !pass) {
+    throw new Error('SMTP credentials are not configured');
+  }
+
+  return nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user,
+      pass
+    }
+  });
+};
+
+const contactValidationRules = [
+  body('name').trim().isLength({ min: 2 }).withMessage('Name is required'),
+  body('email').trim().isEmail().withMessage('Valid email address is required'),
+  body('subject').trim().isLength({ min: 2 }).withMessage('Subject is required'),
+  body('message').trim().isLength({ min: 10 }).withMessage('Message must be at least 10 characters'),
+  body('phone').optional().trim().isLength({ min: 7, max: 32 }).withMessage('Phone number must be between 7 and 32 characters')
+];
+
+app.post('/api/contact', contactValidationRules, async (req: Request, res: Response) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  const { name, email, subject, message, phone } = req.body as {
+    name: string;
+    email: string;
+    subject: string;
+    message: string;
+    phone?: string;
+  };
+
+  const recipient = process.env.CONTACT_RECIPIENT_EMAIL || 'yaramyaswanthkumar@gmail.com';
+  const sender = process.env.CONTACT_FROM_EMAIL || process.env.SMTP_USER;
+
+  if (!sender) {
+    logger.error('Contact form sender email is not configured');
+    return res.status(500).json({ error: 'Email configuration is incomplete' });
+  }
+
+  const formattedPhone = phone?.trim() ? `<p><strong>Phone:</strong> ${phone.trim()}</p>` : '';
+
+  const htmlContent = `
+    <div style="font-family: Inter, Arial, sans-serif; line-height: 1.6; color: #0f172a;">
+      <h2 style="color: #4338ca;">New Contact Form Submission</h2>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      ${formattedPhone}
+      <p><strong>Subject:</strong> ${subject}</p>
+      <p style="margin-top: 16px; white-space: pre-line;">${message}</p>
+    </div>
+  `;
+
+  try {
+    const transporter = createEmailTransporter();
+    await transporter.sendMail({
+      from: sender,
+      to: recipient,
+      replyTo: email,
+      subject: `[AI Code Platform] ${subject}`,
+      html: htmlContent
+    });
+
+    logger.info('Contact form email sent', { email, subject });
+
+    return res.status(200).json({ message: 'Message sent successfully' });
+  } catch (error) {
+    logger.error('Failed to send contact form email', error as Error);
+    return res.status(500).json({ error: 'Failed to send message. Please try again later.' });
+  }
 });
 
 // Service routes
@@ -188,14 +274,18 @@ app.use('/api/ai/git', createProxyMiddleware({
 
 // Direct settings route implementation (bypasses problematic proxy)
 app.use('/api/settings', async (req: any, res: Response) => {
-  console.log('🔥 Settings request received:', req.method, req.url, 'User:', req.user?.email);
+  logger.info('🔥 Settings request received', { 
+    method: req.method, 
+    url: req.url, 
+    user: req.user?.email 
+  });
   
   try {
     const databaseServiceUrl = process.env.DATABASE_SERVICE_URL || 'http://database-service:3003';
     const targetUrl = `${databaseServiceUrl}/settings${req.url.replace('/api/settings', '')}`;
     
-    console.log('🚀 Direct request to:', targetUrl);
-    console.log('📦 Request body:', req.body);
+    logger.info('🚀 Direct request to target', { targetUrl });
+    logger.debug('📦 Request body', { body: req.body });
     
     // Make direct HTTP request to database service
     const response = await fetch(targetUrl, {
@@ -211,7 +301,10 @@ app.use('/api/settings', async (req: any, res: Response) => {
     });
     
     const data = await response.text();
-    console.log('✅ Database service response:', response.status, data);
+    logger.info('✅ Database service response', { 
+      status: response.status, 
+      dataLength: data.length 
+    });
     
     // Forward response
     res.status(response.status);
@@ -222,7 +315,10 @@ app.use('/api/settings', async (req: any, res: Response) => {
     }
     
   } catch (error) {
-    console.error('❌ Direct settings request error:', error);
+    logger.error('❌ Direct settings request error', { 
+      error: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
     res.status(500).json({ error: 'Internal server error' });
   }
 });

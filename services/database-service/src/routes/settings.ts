@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db';
 import { providerSettings, userPreferences } from '../db/schema';
 import { z } from 'zod';
+import { logger } from '../utils/logger';
 
 const router = express.Router();
 
@@ -20,7 +21,7 @@ router.get('/providers', async (req: AuthRequest, res) => {
       const headerUser = req.headers['x-user-id'];
       if (typeof headerUser === 'string' && headerUser.trim().length > 0) {
         userId = headerUser.trim();
-        console.log('🔐 Using x-user-id header for GET /providers:', userId);
+        logger.info('Using x-user-id header for GET /providers', { userId });
       }
     }
     
@@ -28,7 +29,7 @@ router.get('/providers', async (req: AuthRequest, res) => {
       return res.status(401).json({ error: 'Unauthorized - No user ID' });
     }
 
-    console.log('Fetching settings for user ID:', userId);
+    logger.info('Fetching settings for user', { userId });
 
         // Get provider settings with new schema
     let settings;
@@ -55,9 +56,9 @@ router.get('/providers', async (req: AuthRequest, res) => {
         .from(providerSettings)
         .where(eq(providerSettings.userId, userId))
         .limit(1);
-      console.log('Found provider settings:', settings.length);
+      logger.info('Found provider settings', { count: settings.length });
     } catch (dbError) {
-      console.error('Database error fetching provider settings:', dbError);
+      logger.error('Database error fetching provider settings', { error: dbError instanceof Error ? dbError.message : String(dbError) });
       return res.status(500).json({ error: 'Database error fetching provider settings' });
     }
 
@@ -69,9 +70,9 @@ router.get('/providers', async (req: AuthRequest, res) => {
         .from(userPreferences)
         .where(eq(userPreferences.userId, userId))
         .limit(1);
-      console.log('Found user preferences:', preferences.length);
+      logger.info('Found user preferences', { count: preferences.length });
     } catch (dbError) {
-      console.error('Database error fetching user preferences:', dbError);
+      logger.error('Database error fetching user preferences', { error: dbError instanceof Error ? dbError.message : String(dbError) });
       return res.status(500).json({ error: 'Database error fetching user preferences' });
     }
 
@@ -99,7 +100,7 @@ router.get('/providers', async (req: AuthRequest, res) => {
     // Populate provider settings with new schema
     if (settings.length > 0) {
       const setting = settings[0];
-      console.log('Processing provider settings from new schema');
+      logger.info('Processing provider settings from new schema');
       
       formattedSettings.openai = {
         apiKey: setting.openaiToken || '',
@@ -134,7 +135,7 @@ router.get('/providers', async (req: AuthRequest, res) => {
     // Populate preferences
     if (preferences.length > 0) {
       const prefs = preferences[0].preferences as any;
-      console.log('User preferences data:', prefs);
+      logger.info('User preferences data', { prefs });
       formattedSettings.preferences = {
         darkMode: prefs.darkMode || false,
         autoSave: prefs.autoSave || true,
@@ -144,11 +145,11 @@ router.get('/providers', async (req: AuthRequest, res) => {
       };
       if (prefs.workflow) {
         formattedSettings.workflow = prefs.workflow;
-        console.log('Workflow settings loaded:', prefs.workflow);
+        logger.info('Workflow settings loaded', { workflow: prefs.workflow });
       }
     }
 
-    console.log('Final formatted settings:', {
+    logger.info('Final formatted settings', {
       hasOpenAI: formattedSettings.openai.enabled,
       hasAnthropic: formattedSettings.anthropic.enabled,
       hasGoogle: formattedSettings.google.enabled,
@@ -158,7 +159,7 @@ router.get('/providers', async (req: AuthRequest, res) => {
 
     res.json(formattedSettings);
   } catch (error) {
-    console.error('Error in GET /providers:', error);
+    logger.error('Error in GET /providers', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ 
       error: 'Internal server error', 
       message: error instanceof Error ? error.message : 'Unknown error' 
@@ -168,9 +169,9 @@ router.get('/providers', async (req: AuthRequest, res) => {
 
 // Save provider settings for user
 router.post('/providers', async (req: AuthRequest, res) => {
-  console.log('🚀 POST /providers received with new schema');
-  console.log('🚀 User from middleware:', req.user?.id);
-  console.log('🚀 Request body:', JSON.stringify(req.body, null, 2));
+  logger.info('POST /providers received with new schema');
+  logger.info('User from middleware', { userId: req.user?.id });
+  logger.info('Request body', { body: req.body });
 
   try {
     let effectiveUserId: string | undefined = req.user?.id;
@@ -178,16 +179,16 @@ router.post('/providers', async (req: AuthRequest, res) => {
       const headerUser = req.headers['x-user-id'];
       if (typeof headerUser === 'string' && headerUser.trim().length > 0) {
         effectiveUserId = headerUser.trim();
-        console.log('🔐 Using x-user-id header as fallback for internal call:', effectiveUserId);
+        logger.info('Using x-user-id header as fallback for internal call', { effectiveUserId });
       }
     }
     if (!effectiveUserId) {
-      console.log('❌ No user ID found (neither JWT nor x-user-id)');
+      logger.error('No user ID found (neither JWT nor x-user-id)');
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
     const userId = effectiveUserId;
-    console.log('✅ Processing settings save for user:', userId);
+    logger.info('Processing settings save for user', { userId });
 
     // Get existing settings for this user
     const existingSettings = await db
@@ -209,19 +210,19 @@ router.post('/providers', async (req: AuthRequest, res) => {
     if (req.body.openai) {
       updateData.openaiToken = req.body.openai.apiKey || '';
       updateData.openaiEnabled = req.body.openai.enabled || false;
-      console.log('� Setting OpenAI:', updateData.openaiEnabled ? 'enabled' : 'disabled');
+      logger.info('Setting OpenAI', { enabled: updateData.openaiEnabled });
     }
 
     if (req.body.anthropic) {
       updateData.anthropicToken = req.body.anthropic.apiKey || '';
       updateData.anthropicEnabled = req.body.anthropic.enabled || false;
-      console.log('🔧 Setting Anthropic:', updateData.anthropicEnabled ? 'enabled' : 'disabled');
+      logger.info('Setting Anthropic', { enabled: updateData.anthropicEnabled });
     }
 
     if (req.body.google) {
       updateData.googleToken = req.body.google.apiKey || '';
       updateData.googleEnabled = req.body.google.enabled || false;
-      console.log('🔧 Setting Google:', updateData.googleEnabled ? 'enabled' : 'disabled');
+      logger.info('Setting Google', { enabled: updateData.googleEnabled });
     }
 
     if (req.body.github) {
@@ -231,8 +232,8 @@ router.post('/providers', async (req: AuthRequest, res) => {
       updateData.githubInstallationId = githubBody.installation_id || null;
       updateData.githubAppType = githubBody.app_type || null;
       updateData.githubSetupAction = githubBody.setup_action || null;
-      console.log('🔧 Setting GitHub:', updateData.githubEnabled ? 'enabled' : 'disabled');
-      console.log('🔍 GitHub metadata set:', {
+      logger.info('Setting GitHub', { enabled: updateData.githubEnabled });
+      logger.info('GitHub metadata set', {
         hasToken: !!updateData.githubToken,
         installationId: updateData.githubInstallationId,
         appType: updateData.githubAppType,
@@ -244,24 +245,24 @@ router.post('/providers', async (req: AuthRequest, res) => {
       updateData.ollamaBaseUrl = req.body.ollama.baseUrl || 'http://localhost:11434';
       updateData.ollamaEnabled = req.body.ollama.enabled || false;
       updateData.ollamaCustomUrl = req.body.ollama.customUrl || false;
-      console.log('🔧 Setting Ollama:', updateData.ollamaEnabled ? 'enabled' : 'disabled');
+      logger.info('Setting Ollama', { enabled: updateData.ollamaEnabled });
     }
 
     // Update or insert provider settings
     if (existingSettings.length > 0) {
-      console.log('🔄 Updating existing provider settings...');
+      logger.info('Updating existing provider settings');
       await db
         .update(providerSettings)
         .set(updateData)
         .where(eq(providerSettings.id, existingSettings[0].id));
     } else {
-      console.log('➕ Creating new provider settings...');
+      logger.info('Creating new provider settings');
       await db.insert(providerSettings).values(updateData);
     }
 
     // Handle preferences if present
     if (req.body.preferences || req.body.workflow) {
-      console.log('🔧 Processing preferences...');
+      logger.info('Processing preferences');
       
       const existingPrefs = await db
         .select()
@@ -301,10 +302,10 @@ router.post('/providers', async (req: AuthRequest, res) => {
         });
       }
       
-      console.log('✅ Preferences saved successfully');
+      logger.info('Preferences saved successfully');
     }
 
-    console.log('✅ All settings saved successfully for user:', userId);
+    logger.info('All settings saved successfully for user', { userId });
     
     // Immediately respond to prevent timeout/connection issues
     res.setHeader('Connection', 'close');
@@ -319,15 +320,17 @@ router.post('/providers', async (req: AuthRequest, res) => {
     return;
 
   } catch (error) {
-    console.error('❌ Error saving settings:', error);
+    logger.error('Error saving settings', { error: error instanceof Error ? error.message : String(error) });
     
     // Check if it's a database constraint error
     if (error && typeof error === 'object' && 'code' in error) {
-      console.error('Database error code:', (error as any).code);
-      console.error('Database error message:', (error as any).message);
+      logger.error('Database error details', { 
+        code: (error as any).code,
+        message: (error as any).message 
+      });
       
       if ((error as any).code === 'ER_DATA_TOO_LONG') {
-        console.error('❌ Data too long for database field');
+        logger.error('Data too long for database field');
         return res.status(400).json({ error: 'API key is too long for database storage' });
       }
     }

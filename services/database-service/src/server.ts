@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import winston from 'winston';
+import { logger } from './utils/logger';
 import settingsRoutes from './routes/settings';
 import terminalSessionsRoutes from './routes/terminal-sessions';
 
@@ -22,7 +23,7 @@ app.use(compression());
 app.use(express.json({ 
   limit: '10mb',
   verify: (req, res, buf) => {
-    console.log('📦 Received body size:', buf.length, 'bytes');
+    logger.info('Received body size', { bytes: buf.length });
   }
 }));
 app.use(express.urlencoded({ extended: true }));
@@ -31,14 +32,14 @@ app.use(express.urlencoded({ extended: true }));
 app.use((req, res, next) => {
   // Set server timeout to 30 seconds
   req.setTimeout(30000, () => {
-    console.error('❌ Request timeout for:', req.method, req.url);
+    logger.error('Request timeout', { method: req.method, url: req.url });
     if (!res.headersSent) {
       res.status(408).json({ error: 'Request timeout' });
     }
   });
   
   res.setTimeout(30000, () => {
-    console.error('❌ Response timeout for:', req.method, req.url);
+    logger.error('Response timeout', { method: req.method, url: req.url });
     if (!res.headersSent) {
       res.status(408).json({ error: 'Response timeout' });
     }
@@ -47,23 +48,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Logger
-const logger = winston.createLogger({
-  level: process.env.LOG_LEVEL || 'info',
-  format: winston.format.combine(
-    winston.format.timestamp(),
-    winston.format.errors({ stack: true }),
-    winston.format.json()
-  ),
-  transports: [
-    new winston.transports.Console({
-      format: winston.format.combine(
-        winston.format.colorize(),
-        winston.format.simple()
-      )
-    }),
-  ]
-});
+// Logger imported from utils
 
 // Extend Request interface to include user
 declare global {
@@ -81,7 +66,7 @@ app.use((req, res, next) => {
     const userId = req.headers['x-user-id'] as string;
     const userEmail = req.headers['x-user-email'] as string;
 
-    console.log('Middleware - Headers received:', {
+    logger.info('Middleware - Headers received', {
       'x-user-id': userId,
       'x-user-email': userEmail,
       'authorization': req.headers.authorization ? 'present' : 'missing'
@@ -89,12 +74,12 @@ app.use((req, res, next) => {
 
     if (userId && userEmail) {
       req.user = { id: userId, email: userEmail };
-      console.log('Middleware - User set:', req.user);
+      logger.info('Middleware - User set', { user: req.user });
     } else {
-      console.log('Middleware - No user info found in headers');
+      logger.info('Middleware - No user info found in headers');
     }
   } catch (error) {
-    console.error('Middleware - Failed to extract user from request:', error);
+    logger.error('Middleware - Failed to extract user from request', { error: error instanceof Error ? error.message : String(error) });
   }
   next();
 });
@@ -105,13 +90,13 @@ app.use('/terminal-sessions', terminalSessionsRoutes);
 
 // Test endpoint
 app.post('/test-auth', (req: any, res) => {
-  console.log('Test auth endpoint hit');
-  console.log('Headers:', {
+  logger.info('Test auth endpoint hit');
+  logger.info('Headers', {
     authorization: req.headers.authorization,
     'x-user-id': req.headers['x-user-id'],
     'x-user-email': req.headers['x-user-email']
   });
-  console.log('User:', req.user);
+  logger.info('User', { user: req.user });
   res.json({ 
     message: 'Test successful',
     user: req.user,
@@ -140,7 +125,7 @@ app.use('*', (req, res) => {
 app.use((error: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
   // Handle request aborted errors specifically
   if (error.message === 'request aborted' || error.code === 'ECONNABORTED') {
-    console.log('⚠️ Request aborted:', req.method, req.url);
+    logger.warn('Request aborted', { method: req.method, url: req.url });
     // Don't try to send response as connection is already closed
     return;
   }

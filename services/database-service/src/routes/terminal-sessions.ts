@@ -3,6 +3,7 @@ import { eq, and } from 'drizzle-orm';
 import { db } from '../db/index.js';
 import { terminalSessions, projects } from '../db/schema.js';
 import { createId } from '@paralleldrive/cuid2';
+import { logger } from '../utils/logger';
 
 const router = express.Router();
 
@@ -47,7 +48,7 @@ router.post('/', async (req, res) => {
 
     res.json({ session: session[0] });
   } catch (error) {
-    console.error('Error creating terminal session:', error);
+    logger.error('Error creating terminal session', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Failed to create terminal session' });
   }
 });
@@ -78,7 +79,7 @@ router.get('/', async (req, res) => {
       .orderBy(terminalSessions.lastAccessedAt);
     res.json({ sessions });
   } catch (error) {
-    console.error('Error fetching terminal sessions:', error);
+    logger.error('Error fetching terminal sessions', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Failed to fetch terminal sessions' });
   }
 });
@@ -112,7 +113,7 @@ router.get('/:sessionId', async (req, res) => {
 
     res.json({ session: session[0] });
   } catch (error) {
-    console.error('Error fetching terminal session:', error);
+    logger.error('Error fetching terminal session', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Failed to fetch terminal session' });
   }
 });
@@ -156,7 +157,7 @@ router.patch('/:sessionId', async (req, res) => {
 
     res.json({ session: session[0] });
   } catch (error) {
-    console.error('Error updating terminal session:', error);
+    logger.error('Error updating terminal session', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Failed to update terminal session' });
   }
 });
@@ -192,7 +193,7 @@ router.delete('/:sessionId', async (req, res) => {
 
     res.json({ message: 'Terminal session deleted successfully' });
   } catch (error) {
-    console.error('Error deleting terminal session:', error);
+    logger.error('Error deleting terminal session', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Failed to delete terminal session' });
   }
 });

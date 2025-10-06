@@ -2,7 +2,17 @@
 @tailwind components;
 @tailwind utilities;
 
-html, body {
+:root {
+  --color-bg: #eef1ff;
+  --color-surface: #ffffff;
+  --color-text: #111321;
+  --color-text-muted: #6b7398;
+  --color-scrollbar-track: #e3e7fb;
+  --color-scrollbar-thumb: #b3b9d6;
+  --color-scrollbar-thumb-hover: #959ec5;
+}
+
+html {
   margin: 0;
   padding: 0;
   height: 100vh;
@@ -12,6 +22,32 @@ html, body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+html.light {
+  color-scheme: light;
+}
+
+html.dark {
+  color-scheme: dark;
+  --color-bg: #080b19;
+  --color-surface: #131a2f;
+  --color-text: #f5f6ff;
+  --color-text-muted: #a2aad0;
+  --color-scrollbar-track: #131a2f;
+  --color-scrollbar-thumb: #2f3655;
+  --color-scrollbar-thumb-hover: #434c74;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100vh;
+  width: 100vw;
+  background: linear-gradient(135deg, var(--color-bg), var(--color-surface));
+  color: var(--color-text);
   overflow: hidden;
 }
 
@@ -30,29 +66,34 @@ code {
   overflow: hidden;
 }
 
-/* Custom scrollbar styles for file tabs */
+/* Custom scrollbar styles */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: rgb(55, 65, 81) rgb(17, 24, 39);
+  scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
 }
 
 .scrollbar-thin::-webkit-scrollbar {
   height: 8px;
+  width: 8px;
 }
 
 .scrollbar-thin::-webkit-scrollbar-track {
-  background: rgb(17, 24, 39);
+  background: var(--color-scrollbar-track);
 }
 
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: rgb(55, 65, 81);
+  background: var(--color-scrollbar-thumb);
   border-radius: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--color-scrollbar-thumb-hover);
 }
 
 /* Extra thin scrollbar for file tabs */
 .tab-scrollbar {
   scrollbar-width: thin;
-  scrollbar-color: rgb(107, 114, 128) transparent;
+  scrollbar-color: var(--color-scrollbar-thumb) transparent;
 }
 
 .tab-scrollbar::-webkit-scrollbar {
@@ -64,14 +105,10 @@ code {
 }
 
 .tab-scrollbar::-webkit-scrollbar-thumb {
-  background: rgb(107, 114, 128);
+  background: var(--color-scrollbar-thumb);
   border-radius: 2px;
 }
 
 .tab-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgb(156, 163, 175);
-}
-
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: rgb(75, 85, 99);
+  background: var(--color-scrollbar-thumb-hover);
 }

@@ -21,7 +21,7 @@ function App() {
 
   return (
     <Router>
-      <div className="h-screen bg-white dark:bg-gray-900 overflow-hidden">
+  <div className="h-screen bg-background-light text-ink dark:bg-background-dark dark:text-ink-light transition-colors overflow-hidden">
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<HomePage />} />
@@ -60,8 +60,9 @@ function App() {
           toastOptions={{
             duration: 4000,
             style: {
-              background: '#363636',
-              color: '#fff',
+              background: '#1a2340',
+              color: '#f5f6ff',
+              border: '1px solid rgba(86, 93, 136, 0.35)',
             },
           }}
         />

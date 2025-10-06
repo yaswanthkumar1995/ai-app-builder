@@ -1,9 +1,26 @@
-FROM node:18-slim
+# Multi-stage build for ARM64 compatibility
+FROM --platform=linux/arm64 node:18-bullseye as builder
 
-# Install essential system tools and utilities
-FROM node:18-bullseye
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    make \
+    g++ \
+    python3 \
+    python3-pip \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install system dependencies including bash-completion, development tools, and build essentials
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install dependencies with rebuild for ARM64
+RUN npm install --build-from-source
+
+# Production stage
+FROM --platform=linux/arm64 node:18-bullseye
+
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y \
     bash-completion \
     procps \
@@ -17,26 +34,20 @@ RUN apt-get update && apt-get install -y \
     curl \
     wget \
     sudo \
-    python3 \
-    python3-pip \
-    build-essential \
-    make \
-    g++ \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
-
-# Install dependencies with verbose logging
-RUN npm install --verbose
+# Copy built node_modules from builder stage
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/package*.json ./
 
 # Copy source code
-COPY . .
+COPY server.js ./
+COPY logger.js ./
 
 # Expose port
-EXPOSE 3004
+EXPOSE 8001
 
 # Start the service
-CMD ["npm", "start"]
+CMD ["node", "server.js"]
